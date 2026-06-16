@@ -16,6 +16,7 @@ final class CreditsServiceProvider extends PackageServiceProvider
             ->name('credits')
             ->hasConfigFile()
             ->hasMigration('create_credits_table')
+            ->hasTranslations()
             ->hasCommand(ModifyCreditsCommand::class);
     }
 }
