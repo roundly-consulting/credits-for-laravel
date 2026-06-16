@@ -30,6 +30,12 @@ Optionally publish the config file:
 php artisan vendor:publish --tag="credits-config"
 ```
 
+Optionally publish the translations:
+
+```bash
+php artisan vendor:publish --tag="credits-translations"
+```
+
 ## Configuration
 
 The published config file lives at `config/credits.php`:
@@ -45,6 +51,10 @@ return [
 
     'model' => Credit::class,
 
+    'allow_overdraft' => env('CREDITS_ALLOW_OVERDRAFT', false),
+
+    'minimum_balance' => 0,
+
     'modifiable' => [
         //
     ],
@@ -52,10 +62,12 @@ return [
 ];
 ```
 
-| Key | Type | Default | Purpose |
-|---|---|---|---|
-| `model` | `class-string<RoundlyConsulting\Credits\Models\Credit>` | `Credit::class` | The Eloquent model used to store credit rows. Override with your own subclass to customise behaviour or the table. |
-| `modifiable` | `array<Closure>` | `[]` | Resolvers invoked by the `credits:modify` command. Each closure receives a `$modify` callback that applies the requested change to a `Creditable` entity. |
+| Key | Type | Default | Env | Purpose |
+|---|---|---|---|---|
+| `model` | `class-string<RoundlyConsulting\Credits\Models\Credit>` | `Credit::class` | — | The Eloquent model used to store credit rows. Override with your own subclass to customise behaviour or the table. |
+| `allow_overdraft` | `bool` | `false` | `CREDITS_ALLOW_OVERDRAFT` | When `false`, a deduction that would take the balance below `minimum_balance` is rejected with an `InsufficientCreditsException`. Set `true` to permit negative balances globally. |
+| `minimum_balance` | `int` | `0` | — | The floor enforced when overdraft is disallowed. |
+| `modifiable` | `array<Closure>` | `[]` | — | Resolvers invoked by the `credits:modify` command. Each closure receives a `$modify` callback that applies the requested change to a `Creditable` entity. |
 
 The package ships with sensible defaults and works with **zero** host configuration.
 
@@ -88,6 +100,33 @@ $user->modifyCredits(100, 'signup bonus');
 $user->modifyCredits(-30, 'purchase', ['order_id' => 42]);
 ```
 
+`modifyCredits()` returns the recorded `Credit` row.
+
+### Overdraft protection
+
+By default a deduction that would drive the balance below `minimum_balance` (zero by default)
+is **rejected** with an `InsufficientCreditsException` — balances cannot silently go negative.
+
+```php
+use RoundlyConsulting\Credits\Exceptions\InsufficientCreditsException;
+
+try {
+    $user->modifyCredits(-1000, 'big purchase');
+} catch (InsufficientCreditsException $e) {
+    // $e->requested and $e->available carry the numbers; $e->creditable is the entity.
+}
+```
+
+Allow a negative balance for a single call with `allowOverdraft`, or globally via the
+`allow_overdraft` config / `CREDITS_ALLOW_OVERDRAFT` env var:
+
+```php
+$user->modifyCredits(-1000, 'manual debit', allowOverdraft: true);
+```
+
+The read-then-write is wrapped in a database transaction with a row-level lock
+(`lockForUpdate`), so concurrent deductions cannot both breach the floor.
+
 ### Read the balance
 
 ```php
@@ -95,6 +134,14 @@ $user->creditsBalance();            // 70
 
 // Balance as of a point in time:
 $user->creditsBalance(now()->subWeek());
+```
+
+### Check available credits
+
+```php
+$user->hasCredits();        // true if balance >= 1
+$user->hasCredits(100);     // true if balance >= 100
+$user->hasCredits(100, now()->subWeek());
 ```
 
 ### Set an exact balance
@@ -113,6 +160,58 @@ $user->setCreditsTo(500, 'manual adjustment');
 ```php
 $user->credits()->latest()->get();
 ```
+
+### Query scopes
+
+The `Credit` model ships query scopes for reporting over the ledger:
+
+```php
+use RoundlyConsulting\Credits\Models\Credit;
+
+Credit::query()->grants()->get();              // amount > 0
+Credit::query()->deductions()->get();          // amount < 0
+Credit::query()->upTo(now()->subWeek())->get(); // created_at <= $at
+Credit::query()->forCreditable($user)->get();   // rows owned by $user
+```
+
+### Events
+
+A `RoundlyConsulting\Credits\Events\CreditsModified` event is dispatched after every recorded
+change (no event fires when `setCreditsTo()` is a no-op). It carries the `creditable`, the new
+`Credit` row, and the resulting `balance`.
+
+```php
+use Illuminate\Support\Facades\Event;
+use RoundlyConsulting\Credits\Events\CreditsModified;
+
+Event::listen(function (CreditsModified $event): void {
+    // $event->creditable, $event->credit, $event->balance
+});
+```
+
+### Actions (advanced usage)
+
+The trait delegates to single-purpose actions you can resolve and call directly (for example
+from a job or a service). Each takes a DTO / model and has a single `execute()` method:
+
+```php
+use RoundlyConsulting\Credits\Actions\ModifyCreditsAction;
+use RoundlyConsulting\Credits\Actions\SetCreditsAction;
+use RoundlyConsulting\Credits\Actions\GetCreditsBalanceAction;
+use RoundlyConsulting\Credits\DataTransferObjects\CreditChangeData;
+
+app(ModifyCreditsAction::class)->execute($user, new CreditChangeData(
+    amount: -30,
+    description: 'purchase',
+    meta: ['order_id' => 42],
+    allowOverdraft: false,
+));
+
+app(SetCreditsAction::class)->execute($user, 500, 'manual adjustment');
+app(GetCreditsBalanceAction::class)->execute($user);
+```
+
+Bind your own implementation in the container to customise behaviour without forking.
 
 ### Console command
 
@@ -138,8 +237,12 @@ php artisan credits:modify --amount=10 --description="monthly bonus"
 
 | Option | Default | Description |
 |---|---|---|
-| `--amount` | `0` | The credit amount to apply (may be negative). |
+| `--amount` | `0` | The credit amount to apply (must be an integer; may be negative). A non-integer value fails with a non-zero exit code. |
 | `--description` | `null` | An optional human-readable description stored on each row. |
+| `--allow-overdraft` | `false` | Permit deductions that drive the balance below zero. |
+
+Resolved entities that are not `Creditable` models are skipped with a warning rather than
+failing the run.
 
 ## Testing
 
