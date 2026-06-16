@@ -6,36 +6,59 @@ namespace RoundlyConsulting\Credits\Commands;
 
 use Closure;
 use Illuminate\Console\Command;
+use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Credits\Interfaces\Creditable;
 
 final class ModifyCreditsCommand extends Command
 {
     protected $signature = 'credits:modify
         {--amount=0 : The credit amount to apply (may be negative)}
-        {--description= : An optional human-readable description}';
+        {--description= : An optional human-readable description}
+        {--allow-overdraft : Permit deductions that drive the balance below zero}';
 
     protected $description = 'Modify credits on the entities resolved by the credits.modifiable config';
 
     public function handle(): int
     {
-        $description = $this->option('description');
+        $amountOption = $this->option('amount');
 
-        $modify = function (Creditable $creditable) use ($description): void {
-            $creditable->modifyCredits(
-                amount: (int) $this->option('amount'),
+        if (! is_numeric($amountOption) || (string) (int) $amountOption !== (string) $amountOption) {
+            $this->error('The --amount option must be an integer.');
+
+            return self::FAILURE;
+        }
+
+        $amount = (int) $amountOption;
+        $description = $this->option('description');
+        $allowOverdraft = (bool) $this->option('allow-overdraft');
+
+        $count = 0;
+
+        $modify = function (mixed $entity) use ($amount, $description, $allowOverdraft, &$count): void {
+            if (! $entity instanceof Model || ! $entity instanceof Creditable) {
+                $this->warn('Skipped a resolved entity that is not a Creditable model.');
+
+                return;
+            }
+
+            $entity->modifyCredits(
+                amount: $amount,
                 description: is_string($description) ? $description : null,
-                meta: [
-                    'info' => 'Credits modified by credits:modify command.',
-                ],
+                meta: ['info' => 'Credits modified by credits:modify command.'],
+                allowOverdraft: $allowOverdraft,
             );
+
+            $count++;
         };
 
-        /** @var iterable<Closure(Closure(Creditable): void): void> $modifiable */
+        /** @var iterable<Closure(Closure(mixed): void): void> $modifiable */
         $modifiable = config('credits.modifiable', []);
 
         foreach ($modifiable as $callback) {
             $callback($modify);
         }
+
+        $this->info("Modified credits on {$count} ".($count === 1 ? 'entity' : 'entities').'.');
 
         return self::SUCCESS;
     }
