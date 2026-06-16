@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\Event;
+use PHPUnit\Framework\Assert;
 use RoundlyConsulting\Credits\Actions\ModifyCreditsAction;
 use RoundlyConsulting\Credits\DataTransferObjects\CreditChangeData;
 use RoundlyConsulting\Credits\Events\CreditsModified;
@@ -85,5 +86,5 @@ it('carries the requested and available amounts on the exception', function (): 
         return;
     }
 
-    $this->fail('Expected InsufficientCreditsException.');
+    Assert::fail('Expected InsufficientCreditsException.');
 });
