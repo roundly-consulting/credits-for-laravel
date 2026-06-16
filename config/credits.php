@@ -21,6 +21,32 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Allow Overdraft
+    |--------------------------------------------------------------------------
+    |
+    | When false (the default), a deduction that would drive the balance below
+    | the configured minimum is rejected with an InsufficientCreditsException.
+    | Set this to true to permit negative balances globally. Individual calls
+    | can always opt in via the `allowOverdraft` argument.
+    |
+    */
+
+    'allow_overdraft' => env('CREDITS_ALLOW_OVERDRAFT', false),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Minimum Balance
+    |--------------------------------------------------------------------------
+    |
+    | The floor enforced when overdraft is disallowed. A deduction may not take
+    | the balance below this value. Defaults to zero.
+    |
+    */
+
+    'minimum_balance' => 0,
+
+    /*
+    |--------------------------------------------------------------------------
     | Modifiable Resolvers
     |--------------------------------------------------------------------------
     |
