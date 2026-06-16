@@ -24,7 +24,7 @@ use RoundlyConsulting\Credits\Database\Factories\CreditFactory;
  * @property CarbonInterface $updated_at
  * @property CarbonInterface|null $deleted_at
  */
-final class Credit extends Model
+class Credit extends Model
 {
     /** @use HasFactory<CreditFactory> */
     use HasFactory;
@@ -41,25 +41,47 @@ final class Credit extends Model
     }
 
     /**
-     * Sum the credit amounts for a creditable entity (optionally at a point in time).
+     * Limit to grant rows (positive amounts).
+     *
+     * @param  Builder<Credit>  $query
+     * @return Builder<Credit>
      */
-    public function balance(?Model $creditable = null, ?CarbonInterface $at = null): int
+    public function scopeGrants(Builder $query): Builder
     {
-        return (int) $this->newQuery()
-            ->when(
-                value: ! is_null($creditable),
-                callback: fn (Builder $builder): Builder => $builder->whereMorphedTo('creditable', $creditable),
-            )
-            ->when(
-                value: is_null($creditable) && $this->creditable_type && $this->creditable_id,
-                callback: fn (Builder $builder): Builder => $builder->where('creditable_type', $this->creditable_type)
-                    ->where('creditable_id', $this->creditable_id),
-            )
-            ->when(
-                value: ! is_null($at),
-                callback: fn (Builder $builder): Builder => $builder->where('created_at', '<=', $at),
-            )
-            ->sum('amount');
+        return $query->where('amount', '>', 0);
+    }
+
+    /**
+     * Limit to deduction rows (negative amounts).
+     *
+     * @param  Builder<Credit>  $query
+     * @return Builder<Credit>
+     */
+    public function scopeDeductions(Builder $query): Builder
+    {
+        return $query->where('amount', '<', 0);
+    }
+
+    /**
+     * Limit to rows recorded up to (and including) a point in time.
+     *
+     * @param  Builder<Credit>  $query
+     * @return Builder<Credit>
+     */
+    public function scopeUpTo(Builder $query, CarbonInterface $at): Builder
+    {
+        return $query->where('created_at', '<=', $at);
+    }
+
+    /**
+     * Limit to rows owned by a given creditable entity.
+     *
+     * @param  Builder<Credit>  $query
+     * @return Builder<Credit>
+     */
+    public function scopeForCreditable(Builder $query, Model $creditable): Builder
+    {
+        return $query->whereMorphedTo('creditable', $creditable);
     }
 
     /** @return array<string, string> */

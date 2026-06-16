@@ -15,13 +15,25 @@ interface Creditable
 
     public function creditsBalance(?CarbonInterface $at = null): int;
 
-    /**
-     * @param  array<string, mixed>|null  $meta
-     */
-    public function modifyCredits(int $amount, ?string $description = null, ?array $meta = null): void;
+    public function hasCredits(int $amount = 1, ?CarbonInterface $at = null): bool;
 
     /**
      * @param  array<string, mixed>|null  $meta
      */
-    public function setCreditsTo(int $amount, ?string $description = null, ?array $meta = null): void;
+    public function modifyCredits(
+        int $amount,
+        ?string $description = null,
+        ?array $meta = null,
+        bool $allowOverdraft = false,
+    ): Credit;
+
+    /**
+     * @param  array<string, mixed>|null  $meta
+     */
+    public function setCreditsTo(
+        int $amount,
+        ?string $description = null,
+        ?array $meta = null,
+        bool $allowOverdraft = false,
+    ): ?Credit;
 }
