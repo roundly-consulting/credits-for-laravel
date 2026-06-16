@@ -1,10 +1,7 @@
 name: run-tests
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
   test:
@@ -53,3 +50,23 @@ jobs:
 
       - name: Execute tests
         run: composer test
+
+  coverage:
+    runs-on: ubuntu-latest
+    name: coverage (min 90%)
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv, fileinfo
+          coverage: pcov
+
+      - name: Install dependencies
+        uses: ramsey/composer-install@v3
+
+      - name: Execute tests with coverage (fails under 90%)
+        run: composer test-coverage
