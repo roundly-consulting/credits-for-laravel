@@ -19,14 +19,14 @@
     ],
     "require": {
         "php": "^8.3",
-        "illuminate/contracts": "^11.0|^12.0",
+        "illuminate/contracts": "^12.0|^13.0",
         "acme/laravel-package-tools": "^1.16"
     },
     "require-dev": {
         "larastan/larastan": "^3.0",
         "laravel/pint": "^1.18",
         "nunomaduro/collision": "^8.0",
-        "orchestra/testbench": "^9.0|^10.0",
+        "orchestra/testbench": "^10.0|^11.0",
         "pestphp/pest": "^3.0",
         "pestphp/pest-plugin-laravel": "^3.0",
         "phpstan/extension-installer": "^1.4",
@@ -49,7 +49,7 @@
         "format": "vendor/bin/pint",
         "analyse": "vendor/bin/phpstan analyse --no-progress",
         "test": "vendor/bin/pest",
-        "test-coverage": "vendor/bin/pest --coverage"
+        "test-coverage": "vendor/bin/pest --coverage --min=90"
     },
     "config": {
         "sort-packages": true,
