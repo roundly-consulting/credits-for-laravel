@@ -59,6 +59,8 @@ return [
 
     'scale' => 0,
 
+    'rounding' => PHP_ROUND_HALF_UP,
+
     'modifiable' => [
         //
     ],
@@ -72,7 +74,8 @@ return [
 | `allow_overdraft` | `bool` | `false` | `CREDITS_ALLOW_OVERDRAFT` | When `false`, a deduction that would take the balance below `minimum_balance` is rejected with an `InsufficientCreditsException`. Set `true` to permit negative balances globally. |
 | `minimum_balance` | `int` | `0` | — | The floor enforced when overdraft is disallowed. |
 | `default_bucket` | `string` | `'default'` | — | The bucket used for reads and writes when a call omits one. A bucket-less balance query returns this bucket's balance only — it does not sum across buckets. See [Named buckets](#named-buckets). |
-| `scale` | `int` | `0` | — | Documents the integer-minor-unit convention for fractional credits. The package never multiplies by this; formatting happens in the host app. See [Fractional credits (scale)](#fractional-credits-scale). |
+| `scale` | `int` | `0` | — | The number of decimal places the stored integer encodes (the integer-minor-unit convention for fractional credits). Used by the display helpers. See [Displaying balances](#displaying-balances). |
+| `rounding` | `int` | `PHP_ROUND_HALF_UP` | — | Default rounding mode for the display helpers when a requested display scale is smaller than the stored scale. One of `PHP_ROUND_HALF_UP`, `PHP_ROUND_HALF_DOWN`, `PHP_ROUND_HALF_EVEN` (banker's), or `PHP_ROUND_HALF_ODD`. Overridable per call. |
 | `modifiable` | `array<Closure>` | `[]` | — | Resolvers invoked by the `credits:modify` command. Each closure receives a `$modify` callback that applies the requested change to a `Creditable` entity. |
 
 The package ships with sensible defaults and works with **zero** host configuration.
@@ -198,25 +201,68 @@ Existing single-pool usage is unchanged: every call without a bucket continues t
 one pool (the `default` bucket). `setCreditsTo()` and `hasCredits()` accept the same `bucket`
 argument, and the `credits:modify` command exposes a `--bucket=` option.
 
+#### Totals across buckets
+
+When you do want a combined figure, sum across several named buckets or across every bucket
+the entity owns:
+
+```php
+// Sum a chosen set of buckets (names are de-duplicated; an empty list returns 0).
+$user->creditsBalanceForBuckets(['promotional', 'purchased']); // 150
+
+// Sum every bucket on the entity.
+$user->totalCreditsBalance(); // 175
+
+// Both accept an optional point-in-time argument.
+$user->totalCreditsBalance(now()->subWeek());
+```
+
 ### Fractional credits (scale)
 
 Credits are stored as whole integers to avoid floating-point drift. To represent fractional
 credits, treat the stored value as **minor units** and set `scale` in the config to the number
 of decimal places they represent. For example, with `scale = 2` a stored value of `150`
-represents `1.50` credits — store and deduct `150`, and multiply/format by `10 ** scale` when
-displaying in your application:
+represents `1.50` credits — store and deduct the minor units, and use the display helpers
+below to render them. Storage stays an integer (`bigInteger`) and the core math is unchanged.
+
+### Displaying balances
+
+The display helpers turn an integer minor-unit amount into a **locale-free plain decimal
+string** using the configured `scale`. They apply no thousands separators or locale
+formatting — wrap the result with [`Illuminate\Support\Number`](https://laravel.com/docs/helpers#numbers)
+yourself if you need that.
 
 ```php
-$scale = (int) config('credits.scale'); // 2
+config(['credits.scale' => 2]);
 
-$user->modifyCredits(150, 'half a credit'); // stores 150 minor units
+$user->modifyCredits(123450); // stores 123450 minor units
 
-$display = $user->creditsBalance() / (10 ** $scale); // 1.5
+$user->displayCreditsBalance();      // "1234.50"  (a single bucket's balance)
+$user->displayCredits(123450);       // "1234.50"  (format any integer amount)
 ```
 
-The package never multiplies or divides by `scale`; it is a shared convention so every
-consumer agrees on how the stored integers map to displayed values. Storage stays an integer
-(`bigInteger`) and the core math is unchanged.
+`displayCredits()` and `displayCreditsBalance()` take an optional per-call `scale` override
+(the number of decimal places to render) and an optional `rounding` mode. When the requested
+display scale is **smaller** than the stored scale, the dropped digits are rounded using the
+mode — defaulting to `config('credits.rounding')` (`PHP_ROUND_HALF_UP`):
+
+```php
+$user->displayCredits(123450, scale: 0);                          // "1235"  (rounded half-up)
+$user->displayCredits(123450, scale: 0, rounding: PHP_ROUND_HALF_DOWN); // "1234"
+$user->displayCredits(-123450);                                   // "-1234.50"
+```
+
+Multi-bucket display composes from the totals above — there are no dedicated display-total
+methods:
+
+```php
+$user->displayCredits($user->totalCreditsBalance());                       // formatted grand total
+$user->displayCredits($user->creditsBalanceForBuckets(['promotional', 'purchased']));
+```
+
+The reusable formatting core is `RoundlyConsulting\Credits\Actions\FormatCreditsAction`
+(`execute(int $amount, ?int $scale = null, ?int $rounding = null): string`), which the trait
+methods delegate to.
 
 ### Query scopes
 
@@ -230,6 +276,7 @@ Credit::query()->deductions()->get();          // amount < 0
 Credit::query()->upTo(now()->subWeek())->get(); // created_at <= $at
 Credit::query()->forCreditable($user)->get();   // rows owned by $user
 Credit::query()->bucket('promotional')->get();  // rows in a named bucket
+Credit::query()->buckets(['promotional', 'purchased'])->get(); // rows in any listed bucket
 ```
 
 ### Events

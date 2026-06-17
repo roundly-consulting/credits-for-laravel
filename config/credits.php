@@ -79,6 +79,26 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Rounding Mode
+    |--------------------------------------------------------------------------
+    |
+    | The default rounding mode applied by the display helpers when a requested
+    | display scale is smaller than the stored scale and digits must be dropped.
+    | Use one of PHP's rounding constants:
+    |
+    |   PHP_ROUND_HALF_UP   — round halves away from zero (default)
+    |   PHP_ROUND_HALF_DOWN — round halves toward zero
+    |   PHP_ROUND_HALF_EVEN — round halves to the nearest even (banker's rounding)
+    |   PHP_ROUND_HALF_ODD  — round halves to the nearest odd
+    |
+    | Individual calls may override this via the `rounding` argument.
+    |
+    */
+
+    'rounding' => PHP_ROUND_HALF_UP,
+
+    /*
+    |--------------------------------------------------------------------------
     | Modifiable Resolvers
     |--------------------------------------------------------------------------
     |

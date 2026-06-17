@@ -18,6 +18,22 @@ interface Creditable
     public function hasCredits(int $amount = 1, ?CarbonInterface $at = null, ?string $bucket = null): bool;
 
     /**
+     * @param  array<int, string>  $buckets
+     */
+    public function creditsBalanceForBuckets(array $buckets, ?CarbonInterface $at = null): int;
+
+    public function totalCreditsBalance(?CarbonInterface $at = null): int;
+
+    public function displayCredits(int $amount, ?int $scale = null, ?int $rounding = null): string;
+
+    public function displayCreditsBalance(
+        ?string $bucket = null,
+        ?int $scale = null,
+        ?int $rounding = null,
+        ?CarbonInterface $at = null,
+    ): string;
+
+    /**
      * @param  array<string, mixed>|null  $meta
      */
     public function modifyCredits(

@@ -7,6 +7,7 @@ namespace RoundlyConsulting\Credits\Traits;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
+use RoundlyConsulting\Credits\Actions\FormatCreditsAction;
 use RoundlyConsulting\Credits\Actions\GetCreditsBalanceAction;
 use RoundlyConsulting\Credits\Actions\ModifyCreditsAction;
 use RoundlyConsulting\Credits\Actions\SetCreditsAction;
@@ -35,6 +36,46 @@ trait HasCredits
     public function hasCredits(int $amount = 1, ?CarbonInterface $at = null, ?string $bucket = null): bool
     {
         return $this->creditsBalance($at, $bucket) >= $amount;
+    }
+
+    /**
+     * Sum the balance across several named buckets. Names are de-duplicated and an empty
+     * list yields zero.
+     *
+     * @param  array<int, string>  $buckets
+     */
+    public function creditsBalanceForBuckets(array $buckets, ?CarbonInterface $at = null): int
+    {
+        return app(GetCreditsBalanceAction::class)->forBuckets($this, $buckets, $at);
+    }
+
+    /**
+     * Sum the balance across every bucket the entity owns (no bucket filter).
+     */
+    public function totalCreditsBalance(?CarbonInterface $at = null): int
+    {
+        return app(GetCreditsBalanceAction::class)->forAllBuckets($this, $at);
+    }
+
+    /**
+     * Format any integer minor-unit amount into a plain decimal string using the configured
+     * scale, with optional per-call scale and rounding-mode overrides.
+     */
+    public function displayCredits(int $amount, ?int $scale = null, ?int $rounding = null): string
+    {
+        return app(FormatCreditsAction::class)->execute($amount, $scale, $rounding);
+    }
+
+    /**
+     * Format a single bucket's balance into a plain decimal string.
+     */
+    public function displayCreditsBalance(
+        ?string $bucket = null,
+        ?int $scale = null,
+        ?int $rounding = null,
+        ?CarbonInterface $at = null,
+    ): string {
+        return $this->displayCredits($this->creditsBalance($at, $bucket), $scale, $rounding);
     }
 
     /**
