@@ -7,7 +7,7 @@ balance is the sum of its rows — optionally as of a point in time.
 ## Requirements
 
 - PHP 8.3 or 8.4
-- Laravel 11 or 12
+- Laravel 12 or 13
 
 ## Installation
 
@@ -55,6 +55,8 @@ return [
 
     'minimum_balance' => 0,
 
+    'default_bucket' => 'default',
+
     'modifiable' => [
         //
     ],
@@ -67,6 +69,7 @@ return [
 | `model` | `class-string<RoundlyConsulting\Credits\Models\Credit>` | `Credit::class` | — | The Eloquent model used to store credit rows. Override with your own subclass to customise behaviour or the table. |
 | `allow_overdraft` | `bool` | `false` | `CREDITS_ALLOW_OVERDRAFT` | When `false`, a deduction that would take the balance below `minimum_balance` is rejected with an `InsufficientCreditsException`. Set `true` to permit negative balances globally. |
 | `minimum_balance` | `int` | `0` | — | The floor enforced when overdraft is disallowed. |
+| `default_bucket` | `string` | `'default'` | — | The bucket used for reads and writes when a call omits one. A bucket-less balance query returns this bucket's balance only — it does not sum across buckets. See [Named buckets](#named-buckets). |
 | `modifiable` | `array<Closure>` | `[]` | — | Resolvers invoked by the `credits:modify` command. Each closure receives a `$modify` callback that applies the requested change to a `Creditable` entity. |
 
 The package ships with sensible defaults and works with **zero** host configuration.
@@ -161,6 +164,37 @@ $user->setCreditsTo(500, 'manual adjustment');
 $user->credits()->latest()->get();
 ```
 
+### Named buckets
+
+Credits can be split into independent, named pools on the same entity — for example
+`promotional` and `purchased` credit that should never be spent against each other. Every
+write and read method accepts an optional `bucket` argument.
+
+```php
+$user->modifyCredits(100, 'welcome promo', bucket: 'promotional');
+$user->modifyCredits(50, 'top-up', bucket: 'purchased');
+
+$user->creditsBalance(bucket: 'promotional'); // 100
+$user->creditsBalance(bucket: 'purchased');   // 50
+```
+
+Balances are fully isolated per bucket, and the overdraft guard is enforced **per bucket** —
+a deduction against the `purchased` bucket cannot draw on `promotional` credit.
+
+When you omit the bucket, the configured `default_bucket` (`'default'`) is used for **both**
+reads and writes. A bucket-less balance query therefore returns the default bucket's balance
+only; it does **not** sum across every bucket:
+
+```php
+$user->modifyCredits(25);          // lands in the 'default' bucket
+$user->creditsBalance();           // 25  (the default bucket only)
+$user->creditsBalance(bucket: 'promotional'); // 100
+```
+
+Existing single-pool usage is unchanged: every call without a bucket continues to operate on
+one pool (the `default` bucket). `setCreditsTo()` and `hasCredits()` accept the same `bucket`
+argument, and the `credits:modify` command exposes a `--bucket=` option.
+
 ### Query scopes
 
 The `Credit` model ships query scopes for reporting over the ledger:
@@ -172,6 +206,7 @@ Credit::query()->grants()->get();              // amount > 0
 Credit::query()->deductions()->get();          // amount < 0
 Credit::query()->upTo(now()->subWeek())->get(); // created_at <= $at
 Credit::query()->forCreditable($user)->get();   // rows owned by $user
+Credit::query()->bucket('promotional')->get();  // rows in a named bucket
 ```
 
 ### Events
@@ -239,6 +274,7 @@ php artisan credits:modify --amount=10 --description="monthly bonus"
 |---|---|---|
 | `--amount` | `0` | The credit amount to apply (must be an integer; may be negative). A non-integer value fails with a non-zero exit code. |
 | `--description` | `null` | An optional human-readable description stored on each row. |
+| `--bucket` | configured default | The named bucket to apply the change to. Omit to use the configured `default_bucket`. |
 | `--allow-overdraft` | `false` | Permit deductions that drive the balance below zero. |
 
 Resolved entities that are not `Creditable` models are skipped with a warning rather than

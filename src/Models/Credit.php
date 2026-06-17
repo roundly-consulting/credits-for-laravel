@@ -17,6 +17,7 @@ use RoundlyConsulting\Credits\Database\Factories\CreditFactory;
  * @property string $id
  * @property string $creditable_type
  * @property string $creditable_id
+ * @property string $bucket
  * @property int $amount
  * @property string|null $description
  * @property array<string, mixed>|null $meta
@@ -82,6 +83,17 @@ class Credit extends Model
     public function scopeForCreditable(Builder $query, Model $creditable): Builder
     {
         return $query->whereMorphedTo('creditable', $creditable);
+    }
+
+    /**
+     * Limit to rows in a single named bucket.
+     *
+     * @param  Builder<Credit>  $query
+     * @return Builder<Credit>
+     */
+    public function scopeBucket(Builder $query, string $bucket): Builder
+    {
+        return $query->where('bucket', $bucket);
     }
 
     /** @return array<string, string> */

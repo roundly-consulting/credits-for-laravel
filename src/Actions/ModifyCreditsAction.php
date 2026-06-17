@@ -29,7 +29,11 @@ final class ModifyCreditsAction
             return $credit;
         });
 
-        CreditsModified::dispatch($creditable, $credit, $this->balance->execute($creditable));
+        CreditsModified::dispatch(
+            $creditable,
+            $credit,
+            $this->balance->execute($creditable, bucket: $data->resolvedBucket()),
+        );
 
         return $credit;
     }
@@ -46,7 +50,11 @@ final class ModifyCreditsAction
             return;
         }
 
-        $available = $this->balance->execute($creditable, lockForUpdate: true);
+        $available = $this->balance->execute(
+            $creditable,
+            lockForUpdate: true,
+            bucket: $data->resolvedBucket(),
+        );
         $minimum = (int) config('credits.minimum_balance', 0);
 
         if ($available + $data->amount < $minimum) {

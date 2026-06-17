@@ -13,9 +13,9 @@ interface Creditable
     /** @return MorphMany<Credit, covariant \Illuminate\Database\Eloquent\Model> */
     public function credits(): MorphMany;
 
-    public function creditsBalance(?CarbonInterface $at = null): int;
+    public function creditsBalance(?CarbonInterface $at = null, ?string $bucket = null): int;
 
-    public function hasCredits(int $amount = 1, ?CarbonInterface $at = null): bool;
+    public function hasCredits(int $amount = 1, ?CarbonInterface $at = null, ?string $bucket = null): bool;
 
     /**
      * @param  array<string, mixed>|null  $meta
@@ -25,6 +25,7 @@ interface Creditable
         ?string $description = null,
         ?array $meta = null,
         bool $allowOverdraft = false,
+        ?string $bucket = null,
     ): Credit;
 
     /**
@@ -35,5 +36,6 @@ interface Creditable
         ?string $description = null,
         ?array $meta = null,
         bool $allowOverdraft = false,
+        ?string $bucket = null,
     ): ?Credit;
 }

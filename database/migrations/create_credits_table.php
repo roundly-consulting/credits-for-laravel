@@ -13,11 +13,14 @@ return new class extends Migration
         Schema::create('credits', function (Blueprint $table): void {
             $table->uuid('id')->primary();
             $table->morphs('creditable');
+            $table->string('bucket')->default('default')->index();
             $table->bigInteger('amount');
             $table->string('description')->nullable();
             $table->json('meta')->nullable();
             $table->timestamps();
             $table->softDeletes();
+
+            $table->index(['creditable_type', 'creditable_id', 'bucket']);
         });
     }
 };

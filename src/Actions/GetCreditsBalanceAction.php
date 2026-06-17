@@ -12,9 +12,13 @@ use RoundlyConsulting\Credits\Models\Credit;
 
 final class GetCreditsBalanceAction
 {
-    public function execute(Model&Creditable $creditable, ?CarbonInterface $at = null, bool $lockForUpdate = false): int
-    {
-        return (int) $this->query($creditable)
+    public function execute(
+        Model&Creditable $creditable,
+        ?CarbonInterface $at = null,
+        bool $lockForUpdate = false,
+        ?string $bucket = null,
+    ): int {
+        return (int) $this->query($creditable, $bucket)
             ->when(
                 value: ! is_null($at),
                 callback: fn (Builder $builder): Builder => $builder->where('created_at', '<=', $at),
@@ -26,11 +30,15 @@ final class GetCreditsBalanceAction
     /**
      * @return Builder<Credit>
      */
-    private function query(Model&Creditable $creditable): Builder
+    private function query(Model&Creditable $creditable, ?string $bucket): Builder
     {
         /** @var class-string<Credit> $model */
         $model = config('credits.model', Credit::class);
 
-        return $model::query()->whereMorphedTo('creditable', $creditable);
+        $resolvedBucket = $bucket ?? (string) config('credits.default_bucket', 'default');
+
+        return $model::query()
+            ->whereMorphedTo('creditable', $creditable)
+            ->bucket($resolvedBucket);
     }
 }

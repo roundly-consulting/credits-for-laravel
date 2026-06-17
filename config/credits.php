@@ -47,6 +47,21 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Default Bucket
+    |--------------------------------------------------------------------------
+    |
+    | Credits can be partitioned into named buckets (for example "promotional"
+    | and "purchased") that hold isolated balances on the same entity. When a
+    | call omits the bucket, this value is used for both reads and writes, so a
+    | balance query with no bucket returns this bucket's balance only — it does
+    | not sum across every bucket. Existing single-pool usage lands here.
+    |
+    */
+
+    'default_bucket' => 'default',
+
+    /*
+    |--------------------------------------------------------------------------
     | Modifiable Resolvers
     |--------------------------------------------------------------------------
     |

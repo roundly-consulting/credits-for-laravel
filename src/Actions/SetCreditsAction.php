@@ -27,8 +27,9 @@ final class SetCreditsAction
         ?string $description = null,
         ?array $meta = null,
         bool $allowOverdraft = false,
+        ?string $bucket = null,
     ): ?Credit {
-        $delta = $amount - $this->balance->execute($creditable);
+        $delta = $amount - $this->balance->execute($creditable, bucket: $bucket);
 
         if ($delta === 0) {
             return null;
@@ -39,6 +40,7 @@ final class SetCreditsAction
             description: $description,
             meta: $meta,
             allowOverdraft: $allowOverdraft,
+            bucket: $bucket,
         ));
     }
 }

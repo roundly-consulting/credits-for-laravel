@@ -87,6 +87,20 @@ it('supports overdraft via the flag', function (): void {
         ->and($user->creditsBalance())->toBe(-10);
 });
 
+it('applies credits to the named bucket from the --bucket option', function (): void {
+    $user = User::query()->create(['name' => 'Ada']);
+
+    config()->set('credits.modifiable', [
+        fn (Closure $modify) => $modify($user),
+    ]);
+
+    $exitCode = Artisan::call('credits:modify', ['--amount' => 30, '--bucket' => 'promotional']);
+
+    expect($exitCode)->toBe(0)
+        ->and($user->creditsBalance(bucket: 'promotional'))->toBe(30)
+        ->and($user->creditsBalance())->toBe(0);
+});
+
 it('succeeds with no configured resolvers', function (): void {
     config()->set('credits.modifiable', []);
 

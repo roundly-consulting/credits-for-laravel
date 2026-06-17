@@ -27,14 +27,14 @@ trait HasCredits
         return $this->morphMany($this->creditModel(), 'creditable');
     }
 
-    public function creditsBalance(?CarbonInterface $at = null): int
+    public function creditsBalance(?CarbonInterface $at = null, ?string $bucket = null): int
     {
-        return app(GetCreditsBalanceAction::class)->execute($this, $at);
+        return app(GetCreditsBalanceAction::class)->execute($this, $at, bucket: $bucket);
     }
 
-    public function hasCredits(int $amount = 1, ?CarbonInterface $at = null): bool
+    public function hasCredits(int $amount = 1, ?CarbonInterface $at = null, ?string $bucket = null): bool
     {
-        return $this->creditsBalance($at) >= $amount;
+        return $this->creditsBalance($at, $bucket) >= $amount;
     }
 
     /**
@@ -45,12 +45,14 @@ trait HasCredits
         ?string $description = null,
         ?array $meta = null,
         bool $allowOverdraft = false,
+        ?string $bucket = null,
     ): Credit {
         return app(ModifyCreditsAction::class)->execute($this, new CreditChangeData(
             amount: $amount,
             description: $description,
             meta: $meta,
             allowOverdraft: $allowOverdraft,
+            bucket: $bucket,
         ));
     }
 
@@ -62,8 +64,9 @@ trait HasCredits
         ?string $description = null,
         ?array $meta = null,
         bool $allowOverdraft = false,
+        ?string $bucket = null,
     ): ?Credit {
-        return app(SetCreditsAction::class)->execute($this, $amount, $description, $meta, $allowOverdraft);
+        return app(SetCreditsAction::class)->execute($this, $amount, $description, $meta, $allowOverdraft, $bucket);
     }
 
     /**

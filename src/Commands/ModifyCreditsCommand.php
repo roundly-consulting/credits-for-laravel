@@ -14,6 +14,7 @@ final class ModifyCreditsCommand extends Command
     protected $signature = 'credits:modify
         {--amount=0 : The credit amount to apply (may be negative)}
         {--description= : An optional human-readable description}
+        {--bucket= : The named bucket to apply the change to (defaults to the configured bucket)}
         {--allow-overdraft : Permit deductions that drive the balance below zero}';
 
     protected $description = 'Modify credits on the entities resolved by the credits.modifiable config';
@@ -30,11 +31,12 @@ final class ModifyCreditsCommand extends Command
 
         $amount = (int) $amountOption;
         $description = $this->option('description');
+        $bucket = $this->option('bucket');
         $allowOverdraft = (bool) $this->option('allow-overdraft');
 
         $count = 0;
 
-        $modify = function (mixed $entity) use ($amount, $description, $allowOverdraft, &$count): void {
+        $modify = function (mixed $entity) use ($amount, $description, $bucket, $allowOverdraft, &$count): void {
             if (! $entity instanceof Model || ! $entity instanceof Creditable) {
                 $this->warn('Skipped a resolved entity that is not a Creditable model.');
 
@@ -46,6 +48,7 @@ final class ModifyCreditsCommand extends Command
                 description: is_string($description) ? $description : null,
                 meta: ['info' => 'Credits modified by credits:modify command.'],
                 allowOverdraft: $allowOverdraft,
+                bucket: is_string($bucket) && $bucket !== '' ? $bucket : null,
             );
 
             $count++;
