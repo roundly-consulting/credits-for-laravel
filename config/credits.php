@@ -62,6 +62,23 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Scale
+    |--------------------------------------------------------------------------
+    |
+    | Credits are stored as whole integers to avoid floating-point drift. To
+    | represent fractional credits, treat the stored value as minor units and
+    | set this to the number of decimal places those minor units represent
+    | (for example 2 means a stored value of 150 is displayed as 1.50). The
+    | package never multiplies or divides by this value — formatting and
+    | parsing happen in the host application; this key documents the chosen
+    | convention so every consumer agrees on it. Defaults to 0 (whole units).
+    |
+    */
+
+    'scale' => 0,
+
+    /*
+    |--------------------------------------------------------------------------
     | Modifiable Resolvers
     |--------------------------------------------------------------------------
     |

@@ -57,6 +57,8 @@ return [
 
     'default_bucket' => 'default',
 
+    'scale' => 0,
+
     'modifiable' => [
         //
     ],
@@ -70,6 +72,7 @@ return [
 | `allow_overdraft` | `bool` | `false` | `CREDITS_ALLOW_OVERDRAFT` | When `false`, a deduction that would take the balance below `minimum_balance` is rejected with an `InsufficientCreditsException`. Set `true` to permit negative balances globally. |
 | `minimum_balance` | `int` | `0` | — | The floor enforced when overdraft is disallowed. |
 | `default_bucket` | `string` | `'default'` | — | The bucket used for reads and writes when a call omits one. A bucket-less balance query returns this bucket's balance only — it does not sum across buckets. See [Named buckets](#named-buckets). |
+| `scale` | `int` | `0` | — | Documents the integer-minor-unit convention for fractional credits. The package never multiplies by this; formatting happens in the host app. See [Fractional credits (scale)](#fractional-credits-scale). |
 | `modifiable` | `array<Closure>` | `[]` | — | Resolvers invoked by the `credits:modify` command. Each closure receives a `$modify` callback that applies the requested change to a `Creditable` entity. |
 
 The package ships with sensible defaults and works with **zero** host configuration.
@@ -194,6 +197,26 @@ $user->creditsBalance(bucket: 'promotional'); // 100
 Existing single-pool usage is unchanged: every call without a bucket continues to operate on
 one pool (the `default` bucket). `setCreditsTo()` and `hasCredits()` accept the same `bucket`
 argument, and the `credits:modify` command exposes a `--bucket=` option.
+
+### Fractional credits (scale)
+
+Credits are stored as whole integers to avoid floating-point drift. To represent fractional
+credits, treat the stored value as **minor units** and set `scale` in the config to the number
+of decimal places they represent. For example, with `scale = 2` a stored value of `150`
+represents `1.50` credits — store and deduct `150`, and multiply/format by `10 ** scale` when
+displaying in your application:
+
+```php
+$scale = (int) config('credits.scale'); // 2
+
+$user->modifyCredits(150, 'half a credit'); // stores 150 minor units
+
+$display = $user->creditsBalance() / (10 ** $scale); // 1.5
+```
+
+The package never multiplies or divides by `scale`; it is a shared convention so every
+consumer agrees on how the stored integers map to displayed values. Storage stays an integer
+(`bigInteger`) and the core math is unchanged.
 
 ### Query scopes
 
