@@ -96,6 +96,18 @@ class Credit extends Model
         return $query->where('bucket', $bucket);
     }
 
+    /**
+     * Limit to rows in any of the given named buckets.
+     *
+     * @param  Builder<Credit>  $query
+     * @param  array<int, string>  $buckets
+     * @return Builder<Credit>
+     */
+    public function scopeBuckets(Builder $query, array $buckets): Builder
+    {
+        return $query->whereIn('bucket', $buckets);
+    }
+
     /** @return array<string, string> */
     protected function casts(): array
     {

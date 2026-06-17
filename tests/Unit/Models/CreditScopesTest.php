@@ -38,3 +38,13 @@ it('scopes for a creditable', function (): void {
 
     expect(Credit::query()->forCreditable($ada)->count())->toBe(1);
 });
+
+it('scopes to several named buckets', function (): void {
+    $user = User::query()->create(['name' => 'Ada']);
+    $user->credits()->create(['amount' => 10, 'bucket' => 'promotional']);
+    $user->credits()->create(['amount' => 20, 'bucket' => 'purchased']);
+    $user->credits()->create(['amount' => 30, 'bucket' => 'gift']);
+
+    expect(Credit::query()->buckets(['promotional', 'purchased'])->count())->toBe(2)
+        ->and((int) Credit::query()->buckets(['promotional', 'purchased'])->sum('amount'))->toBe(30);
+});
