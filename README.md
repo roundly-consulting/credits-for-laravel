@@ -1,3 +1,11 @@
+<!-- roundly-hero:start -->
+<p align="center">
+  <a href="https://roundly-consulting.com/open-source/docs/credits-for-laravel?utm_source=github&utm_medium=readme&utm_campaign=open-source&utm_content=credits-for-laravel">
+    <img src="art/hero.png" alt="Credits for Laravel — Roundly open source" width="100%">
+  </a>
+</p>
+<!-- roundly-hero:end -->
+
 # Credits for Laravel
 
 Manage credits / wallet balance on any Eloquent entity. Each credit change is stored as an
