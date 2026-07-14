@@ -42,3 +42,12 @@ it('excludes soft-deleted rows from the balance', function (): void {
 
     expect($user->creditsBalance())->toBe(100);
 });
+
+it('builds ledger rows through the packaged factory', function (): void {
+    $user = User::query()->create(['name' => 'Ada']);
+
+    $credit = Credit::factory()->for($user, 'creditable')->create(['amount' => 40, 'bucket' => 'default']);
+
+    expect($credit)->toBeInstanceOf(Credit::class)
+        ->and($user->creditsBalance())->toBe(40);
+});
