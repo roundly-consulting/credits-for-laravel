@@ -16,6 +16,8 @@ balance is the sum of its rows — optionally as of a point in time.
 
 - PHP 8.4
 - Laravel 12 or 13
+- [`roundly-consulting/package-toolkit-for-laravel`](https://github.com/roundly-consulting/package-toolkit-for-laravel)
+  (the shared package bootstrapper — a hard dependency, installs automatically)
 
 ## Installation
 
@@ -25,7 +27,9 @@ Install the package via Composer:
 composer require roundly-consulting/credits-for-laravel
 ```
 
-Publish and run the migrations:
+Publish and run the migration. The package does **not** auto-load it — publishing copies the
+`credits` migration into your `database/migrations`, where you own it, so a bare
+`php artisan migrate` before publishing creates nothing:
 
 ```bash
 php artisan vendor:publish --tag="credits-migrations"
@@ -357,6 +361,23 @@ php artisan credits:modify --amount=10 --description="monthly bonus"
 
 Resolved entities that are not `Creditable` models are skipped with a warning rather than
 failing the run.
+
+### Concurrency
+
+The balance is never a stored column — it is the sum of an append-only ledger. A deduction
+runs inside a transaction that reads the ledger under `lockForUpdate()` before the overdraft
+guard decides, so two racing debits serialise and the second cannot overdraw. Because every
+change is written as a new delta row (never an absolute balance), a change that lands between
+the balance read and the write is folded in, never lost.
+
+### Inspecting the configuration
+
+```bash
+php artisan about --only=credits
+```
+
+Reports the resolved model, the overdraft policy, the minimum balance, the default bucket, the
+scale, and how many `modifiable` resolvers are registered (a count — never what they resolve).
 
 ## Testing
 
