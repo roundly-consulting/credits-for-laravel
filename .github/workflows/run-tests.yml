@@ -29,8 +29,8 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv, fileinfo
-          coverage: none
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, intl, fileinfo
+          coverage: pcov
 
       - name: Setup problem matchers
         run: |
@@ -38,6 +38,8 @@ jobs:
           echo "::add-matcher::${{ runner.tool_cache }}/phpunit.json"
 
       - name: Install dependencies
+        env:
+          COMPOSER_AUTH: '{"github-oauth":{"github.com":"${{ secrets.COMPOSER_AUTH_TOKEN }}"}}'
         run: |
           composer require "laravel/framework:${{ matrix.laravel }}" "orchestra/testbench:${{ matrix.testbench }}" --no-interaction --no-update
           composer update --${{ matrix.stability }} --prefer-dist --no-interaction
@@ -48,25 +50,5 @@ jobs:
       - name: Run audit
         run: composer audit
 
-      - name: Execute tests
-        run: composer test
-
-  coverage:
-    runs-on: ubuntu-latest
-    name: coverage (min 90%)
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
-
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.4'
-          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv, fileinfo
-          coverage: pcov
-
-      - name: Install dependencies
-        uses: ramsey/composer-install@v3
-
-      - name: Execute tests with coverage (fails under 90%)
-        run: composer test-coverage
+      - name: Execute tests (coverage min 90%)
+        run: vendor/bin/pest --ci --coverage --min=90
