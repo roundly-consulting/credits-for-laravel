@@ -14,6 +14,10 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use RoundlyConsulting\Credits\Database\Factories\CreditFactory;
 
 /**
+ * A single, immutable ledger row: the balance is the sum of an entity's rows, never a
+ * stored column. Deliberately not `final` — `credits.model` documents swapping in a
+ * subclass, which `final` would make impossible.
+ *
  * @property string $id
  * @property string $creditable_type
  * @property string $creditable_id

@@ -4,7 +4,9 @@ parameters:
         - src
         - database
         - config
-        - tests
+        # The HasCredits trait and the `credits.model` override are consumer-facing; the
+        # fixtures that exercise them are analysed so PHPStan sees a real usage.
+        - tests/Fixtures
     checkOctaneCompatibility: true
     checkModelProperties: true
     configDirectories:

@@ -14,6 +14,7 @@ use RoundlyConsulting\Credits\Actions\SetCreditsAction;
 use RoundlyConsulting\Credits\DataTransferObjects\CreditChangeData;
 use RoundlyConsulting\Credits\Interfaces\Creditable;
 use RoundlyConsulting\Credits\Models\Credit;
+use RoundlyConsulting\Credits\Support\CreditModel;
 
 /**
  * @mixin Model
@@ -115,9 +116,6 @@ trait HasCredits
      */
     protected function creditModel(): string
     {
-        /** @var class-string<Credit> $model */
-        $model = config('credits.model', Credit::class);
-
-        return $model;
+        return CreditModel::class();
     }
 }

@@ -4,46 +4,43 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Credits;
 
-use Illuminate\Support\ServiceProvider;
 use RoundlyConsulting\Credits\Commands\ModifyCreditsCommand;
+use RoundlyConsulting\Credits\Support\CreditModel;
+use RoundlyConsulting\PackageToolkit\Package;
+use RoundlyConsulting\PackageToolkit\PackageServiceProvider;
 
-final class CreditsServiceProvider extends ServiceProvider
+final class CreditsServiceProvider extends PackageServiceProvider
 {
-    public function register(): void
+    public function configurePackage(Package $package): void
     {
-        $this->mergeConfigFrom(__DIR__.'/../config/credits.php', 'credits');
-    }
-
-    public function boot(): void
-    {
-        $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
-        $this->loadTranslationsFrom(__DIR__.'/../resources/lang', 'credits');
-
-        if ($this->app->runningInConsole()) {
-            $this->commands([
+        $package
+            ->name('credits')
+            ->hasConfigFile()
+            ->hasMigrations()
+            ->hasTranslations()
+            ->hasCommands([
                 ModifyCreditsCommand::class,
+            ])
+            ->contributesToAbout(static fn (): array => [
+                'Model' => class_basename(CreditModel::class()),
+                'Overdraft' => config('credits.allow_overdraft', false) === true ? 'ALLOWED' : 'BLOCKED',
+                'Minimum balance' => (string) (int) config('credits.minimum_balance', 0),
+                'Default bucket' => (string) config('credits.default_bucket', 'default'),
+                'Scale' => (string) (int) config('credits.scale', 0),
+                'Modifiable resolvers' => self::modifiableResolvers(),
             ]);
-
-            $this->publishes([
-                __DIR__.'/../config/credits.php' => config_path('credits.php'),
-            ], 'credits-config');
-
-            $this->publishes([
-                __DIR__.'/../database/migrations/create_credits_table.php' => $this->publishableMigrationPath(),
-            ], 'credits-migrations');
-
-            $this->publishes([
-                __DIR__.'/../resources/lang' => $this->app->langPath('vendor/credits'),
-            ], 'credits-translations');
-        }
     }
 
     /**
-     * Stamp the published migration with a current timestamp so it runs after
-     * any migrations already present in the host application.
+     * The `credits.modifiable` entries are host closures that walk the host's own
+     * entities, so the section reports how many are registered and never anything
+     * about what they resolve.
      */
-    private function publishableMigrationPath(): string
+    private static function modifiableResolvers(): string
     {
-        return database_path('migrations/'.date('Y_m_d_His').'_create_credits_table.php');
+        $modifiable = config('credits.modifiable', []);
+        $count = is_countable($modifiable) ? count($modifiable) : 0;
+
+        return $count === 0 ? 'NONE' : $count.' registered';
     }
 }

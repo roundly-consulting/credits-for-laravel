@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Credits\Interfaces\Creditable;
 use RoundlyConsulting\Credits\Models\Credit;
+use RoundlyConsulting\Credits\Support\CreditModel;
 
 final class GetCreditsBalanceAction
 {
@@ -74,9 +75,6 @@ final class GetCreditsBalanceAction
      */
     private function baseQuery(Model&Creditable $creditable): Builder
     {
-        /** @var class-string<Credit> $model */
-        $model = config('credits.model', Credit::class);
-
-        return $model::query()->whereMorphedTo('creditable', $creditable);
+        return CreditModel::class()::query()->whereMorphedTo('creditable', $creditable);
     }
 }
