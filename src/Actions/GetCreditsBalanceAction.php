@@ -61,13 +61,36 @@ final class GetCreditsBalanceAction
      */
     private function sum(Builder $query, ?CarbonInterface $at, bool $lockForUpdate = false): int
     {
-        return (int) $query
-            ->when(
-                value: ! is_null($at),
-                callback: fn (Builder $builder): Builder => $builder->where('created_at', '<=', $at),
-            )
-            ->when($lockForUpdate, fn (Builder $builder): Builder => $builder->lockForUpdate())
-            ->sum('amount');
+        $query = $query->when(
+            value: ! is_null($at),
+            callback: fn (Builder $builder): Builder => $builder->where('created_at', '<=', $at),
+        );
+
+        if ($lockForUpdate) {
+            return $this->sumLockedRows($query);
+        }
+
+        return (int) $query->sum('amount');
+    }
+
+    /**
+     * Lock the ledger rows, then add up exactly the rows that were locked.
+     *
+     * A locked balance cannot be a single statement: `SELECT sum(amount) … FOR UPDATE` is
+     * rejected outright by Postgres ("FOR UPDATE is not allowed with aggregate functions",
+     * SQLSTATE 0A000) and is invalid on MySQL too. Only SQLite tolerated it, by compiling
+     * the lock away to an empty string — which is how it shipped.
+     *
+     * Selecting the amounts under the lock keeps the guard's meaning intact: the lock
+     * covers precisely the rows the sum is derived from, and it is held to the end of the
+     * enclosing transaction (never released between the read and the ledger write), so a
+     * racing debit blocks on it instead of deciding against a stale balance.
+     *
+     * @param  Builder<Credit>  $query
+     */
+    private function sumLockedRows(Builder $query): int
+    {
+        return (int) $query->lockForUpdate()->pluck('amount')->sum();
     }
 
     /**
