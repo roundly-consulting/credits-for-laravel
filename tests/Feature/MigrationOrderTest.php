@@ -54,10 +54,10 @@ it('applies its migration on postgres', function () use ($migrations): void {
 })->skip(fn (): bool => ! test()->connectionAvailable('pgsql'), 'no postgres connection available');
 
 /**
- * The `jsonb` meta column and the uuid primary key are the two bits of this schema the
- * drivers genuinely render differently (`jsonb` vs sqlite text, and uuid vs char(36)).
- * Pinning a round-trip on whatever engine the leg configured is what proves the column
- * types are usable rather than merely creatable.
+ * The `jsonb` meta column and the configurable primary key are the two bits of this schema
+ * the drivers genuinely render differently (`jsonb` vs sqlite text; `bigserial` vs sqlite's
+ * INTEGER rowid alias). Pinning a round-trip on whatever engine the leg configured is what
+ * proves the column types are usable rather than merely creatable.
  *
  * Asserted key-by-key, not against a whole literal array: Postgres `jsonb` sorts object keys
  * by (length, bytes), so `toBe(['campaign' => ..., 'tier' => ...])` would compare insertion
@@ -74,7 +74,7 @@ it('round-trips the ledger columns on the configured engine', function (): void 
     expect($fresh->meta['campaign'] ?? null)->toBe('launch')
         ->and($fresh->meta['tier'] ?? null)->toBe(2)
         ->and($fresh->amount)->toBe(150)
-        ->and($fresh->id)->toBeString()
+        ->and($fresh->id)->toBeInt()
         ->and($user->creditsBalance())->toBe(150)
         // The driver actually under test, so a leg that quietly stayed on sqlite is visible
         // in the failure rather than passing as a "postgres" run.

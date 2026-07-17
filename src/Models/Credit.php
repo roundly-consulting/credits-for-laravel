@@ -6,11 +6,11 @@ namespace RoundlyConsulting\Credits\Models;
 
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use RoundlyConsulting\Credits\Concerns\HasConfigurableKey;
 use RoundlyConsulting\Credits\Database\Factories\CreditFactory;
 
 /**
@@ -18,9 +18,9 @@ use RoundlyConsulting\Credits\Database\Factories\CreditFactory;
  * stored column. Deliberately not `final` — `credits.model` documents swapping in a
  * subclass, which `final` would make impossible.
  *
- * @property string $id
+ * @property int|string $id
  * @property string $creditable_type
- * @property string $creditable_id
+ * @property int|string $creditable_id
  * @property string $bucket
  * @property int $amount
  * @property string|null $description
@@ -31,10 +31,11 @@ use RoundlyConsulting\Credits\Database\Factories\CreditFactory;
  */
 class Credit extends Model
 {
+    use HasConfigurableKey;
+
     /** @use HasFactory<CreditFactory> */
     use HasFactory;
 
-    use HasUuids;
     use SoftDeletes;
 
     protected $guarded = [];

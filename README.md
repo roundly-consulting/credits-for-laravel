@@ -63,6 +63,8 @@ return [
 
     'model' => Credit::class,
 
+    'primary_key_type' => env('CREDITS_PRIMARY_KEY_TYPE', 'bigint'),
+
     'allow_overdraft' => env('CREDITS_ALLOW_OVERDRAFT', false),
 
     'minimum_balance' => 0,
@@ -83,6 +85,7 @@ return [
 | Key | Type | Default | Env | Purpose |
 |---|---|---|---|---|
 | `model` | `class-string<RoundlyConsulting\Credits\Models\Credit>` | `Credit::class` | — | The Eloquent model used to store credit rows. Override with your own subclass to customise behaviour or the table. |
+| `primary_key_type` | `string` | `'bigint'` | `CREDITS_PRIMARY_KEY_TYPE` | The primary-key strategy of the `credits` table: `bigint`, `uuid` or `ulid`. Fixed when the migration first runs. See [Key types](#key-types). |
 | `allow_overdraft` | `bool` | `false` | `CREDITS_ALLOW_OVERDRAFT` | When `false`, a deduction that would take the balance below `minimum_balance` is rejected with an `InsufficientCreditsException`. Set `true` to permit negative balances globally. |
 | `minimum_balance` | `int` | `0` | — | The floor enforced when overdraft is disallowed. |
 | `default_bucket` | `string` | `'default'` | — | The bucket used for reads and writes when a call omits one. A bucket-less balance query returns this bucket's balance only — it does not sum across buckets. See [Named buckets](#named-buckets). |
@@ -91,6 +94,32 @@ return [
 | `modifiable` | `array<Closure>` | `[]` | — | Resolvers invoked by the `credits:modify` command. Each closure receives a `$modify` callback that applies the requested change to a `Creditable` entity. |
 
 The package ships with sensible defaults and works with **zero** host configuration.
+
+### Key types
+
+`primary_key_type` sets the type of the `credits` table's own `id` column, and the model
+follows it — `bigint` (auto-incrementing, the default), `uuid` or `ulid`. It is read when
+the migration runs, so choose it **before** you publish and migrate; changing it afterwards
+is a data migration, not a config change.
+
+The default is `bigint` for a reason worth understanding before you change it. A `Credit` is
+a thing other packages point *at* polymorphically, and a Laravel morph column
+(`$table->morphs('subject')`) is an unsigned bigint. On a strict engine such as PostgreSQL,
+a `uuid` credit id will not go into one:
+
+```
+SQLSTATE[22P02]: invalid input syntax for type bigint: "019f6f33-22b8-737f-a581-849e7cdc517a"
+```
+
+SQLite will **not** warn you about this — its type affinity stores the string in an integer
+column silently, so a green SQLite suite proves nothing here.
+
+> **Constraint:** this assumes every morph target in your application shares one key type.
+> If you set `CREDITS_PRIMARY_KEY_TYPE=uuid`, the models on the other end of your
+> polymorphic relations need to be uuid-keyed too, and the packages owning those columns
+> need to agree. A mixed application — a `uuid` `Credit` and a `bigint` `Comment` both
+> pointed at by the same morph column — is not supported by this package, by Laravel's own
+> `morphs()`/`uuidMorphs()` split, or by anything else. Pick one key type per application.
 
 ## Usage
 

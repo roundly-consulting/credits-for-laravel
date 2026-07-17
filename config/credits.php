@@ -21,6 +21,27 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Primary Key Type
+    |--------------------------------------------------------------------------
+    |
+    | The primary-key strategy of the credits table itself: "bigint" (the Laravel
+    | default), "uuid" or "ulid". Anything unrecognized falls back to "bigint".
+    |
+    | This is the key OTHER packages' polymorphic columns point at. A morph column
+    | (`likeable_id`, `reportable_id`, ...) defaults to an unsigned bigint, so on a
+    | strict engine such as PostgreSQL a non-bigint credits id cannot be related to
+    | polymorphically. Change this only if every morph target in your application
+    | shares the same key type — see "Key types" in the README.
+    |
+    | It is fixed when the migration first runs, so choose it before publishing the
+    | migrations.
+    |
+    */
+
+    'primary_key_type' => env('CREDITS_PRIMARY_KEY_TYPE', 'bigint'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Allow Overdraft
     |--------------------------------------------------------------------------
     |

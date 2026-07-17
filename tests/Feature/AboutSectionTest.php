@@ -24,7 +24,7 @@ it('renders the credits section without leaking the ledger it guards', function 
     ]);
 
     $user = User::query()->create(['name' => 'Ada']);
-    $user->modifyCredits(4242);
+    $user->modifyCredits(4242, 'confidential-ledger-note');
 
     expect('credits')->toLeakNoSecrets(
         secrets: [
@@ -34,10 +34,17 @@ it('renders the credits section without leaking the ledger it guards', function 
             'Ada',
             // No balance, and no ledger row, ever renders in an `about` section.
             '4242',
-            (string) $user->credits()->value('id'),
+            // A real column off the row that was just written — the ledger canary that
+            // replaces the row's `id`. The id cannot be pinned now that
+            // `credits.primary_key_type` defaults to bigint: it is the integer `1`, and a
+            // one-character substring canary matches unrelated output ("1 registered"),
+            // failing for a reason that has nothing to do with a leak.
+            'confidential-ledger-note',
         ],
         mustRender: [
             'Model',
+            'Key type',
+            'bigint',
             'Overdraft',
             'Minimum balance',
             'Default bucket',

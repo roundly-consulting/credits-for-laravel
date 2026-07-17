@@ -6,6 +6,7 @@ namespace RoundlyConsulting\Credits;
 
 use RoundlyConsulting\Credits\Commands\ModifyCreditsCommand;
 use RoundlyConsulting\Credits\Support\CreditModel;
+use RoundlyConsulting\PackageToolkit\Enums\KeyType;
 use RoundlyConsulting\PackageToolkit\Package;
 use RoundlyConsulting\PackageToolkit\PackageServiceProvider;
 
@@ -23,6 +24,10 @@ final class CreditsServiceProvider extends PackageServiceProvider
             ])
             ->contributesToAbout(static fn (): array => [
                 'Model' => class_basename(CreditModel::class()),
+                // Surfaced deliberately: a non-bigint id cannot be held by another
+                // package's `morphs()` column on a strict engine, so a host that has
+                // flipped this needs to see it without reading a migration.
+                'Key type' => KeyType::fromConfig('credits.primary_key_type')->value,
                 'Overdraft' => config('credits.allow_overdraft', false) === true ? 'ALLOWED' : 'BLOCKED',
                 'Minimum balance' => (string) (int) config('credits.minimum_balance', 0),
                 'Default bucket' => (string) config('credits.default_bucket', 'default'),

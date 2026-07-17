@@ -5,13 +5,13 @@ declare(strict_types=1);
 use RoundlyConsulting\Credits\Models\Credit;
 use RoundlyConsulting\Credits\Tests\Fixtures\User;
 
-it('uses a uuid primary key', function (): void {
+it('uses the configured primary key, defaulting to an auto-incrementing bigint', function (): void {
     $user = User::query()->create(['name' => 'Ada']);
 
     $credit = $user->credits()->create(['amount' => 50]);
 
-    expect($credit->id)->toBeString()->toHaveLength(36);
-});
+    expect($credit->id)->toBeInt();
+})->group('key-type');
 
 it('casts amount to integer and meta to array', function (): void {
     $user = User::query()->create(['name' => 'Ada']);
