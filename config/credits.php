@@ -21,7 +21,28 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Primary Key Type
+    | Key Type (outbound — the models a credit points at)
+    |--------------------------------------------------------------------------
+    |
+    | The key type used for the polymorphic `creditable` column — the model that
+    | holds the credits. It must match your creditable models' primary key:
+    | "bigint" (the Laravel default), "uuid" or "ulid". Anything unrecognized
+    | falls back to "bigint".
+    |
+    | This is your CREDITABLE model's key type, not the credits table's own — see
+    | "primary_key_type" below. The two are independent: a host with uuid users
+    | holding credits stored under a bigint credits id is perfectly ordinary. It
+    | is fixed when the migration first runs, so choose it before publishing.
+    |
+    | Supported: "bigint", "uuid", "ulid"
+    |
+    */
+
+    'key_type' => env('CREDITS_KEY_TYPE', 'bigint'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Primary Key Type (inbound — the credits table's own id)
     |--------------------------------------------------------------------------
     |
     | The primary-key strategy of the credits table itself: "bigint" (the Laravel

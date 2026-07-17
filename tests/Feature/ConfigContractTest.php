@@ -14,7 +14,7 @@ declare(strict_types=1);
  *    alerts #24's thrice-documented `escalation` key.
  */
 it('ships exactly the config keys it reads', function (): void {
-    expect(__DIR__.'/../../config/credits.php')->toSatisfyConfigContract(__DIR__.'/../../src', [
+    expect(__DIR__.'/../../config/credits.php')->toSatisfyConfigContract([__DIR__.'/../../src', __DIR__.'/../../database'], [
         // `credits.model` is read through the toolkit's `ModelResolver::for('credits.model',
         // …)` seam rather than a `config()` call. It is a real read that drives the whole
         // model swap, but it is not a `config(` token, so the prefix is what makes it

@@ -16,14 +16,19 @@ return new class extends Migration
         // unrelatable on a strict engine.
         $keyType = KeyType::fromConfig('credits.primary_key_type');
 
-        Schema::create('credits', function (Blueprint $table) use ($keyType): void {
+        // The outbound morph key: the type of the model that HOLDS the credits. A
+        // different axis from the credits table's own id — a host may hold credits on
+        // uuid users while the credits id stays bigint, or vice versa.
+        $morphKeyType = KeyType::fromConfig('credits.key_type');
+
+        Schema::create('credits', function (Blueprint $table) use ($keyType, $morphKeyType): void {
             match ($keyType) {
                 KeyType::BigInt => $table->id(),
                 KeyType::Uuid => $table->uuid('id')->primary(),
                 KeyType::Ulid => $table->ulid('id')->primary(),
             };
 
-            $table->morphs('creditable');
+            $table->morphKey('creditable', $morphKeyType, nullable: false);
             $table->string('bucket')->default('default')->index();
             $table->bigInteger('amount');
             $table->string('description')->nullable();

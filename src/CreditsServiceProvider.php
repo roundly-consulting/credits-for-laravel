@@ -6,12 +6,15 @@ namespace RoundlyConsulting\Credits;
 
 use RoundlyConsulting\Credits\Commands\ModifyCreditsCommand;
 use RoundlyConsulting\Credits\Support\CreditModel;
+use RoundlyConsulting\PackageToolkit\Concerns\RegistersBlueprintMacros;
 use RoundlyConsulting\PackageToolkit\Enums\KeyType;
 use RoundlyConsulting\PackageToolkit\Package;
 use RoundlyConsulting\PackageToolkit\PackageServiceProvider;
 
 final class CreditsServiceProvider extends PackageServiceProvider
 {
+    use RegistersBlueprintMacros;
+
     public function configurePackage(Package $package): void
     {
         $package
@@ -27,13 +30,26 @@ final class CreditsServiceProvider extends PackageServiceProvider
                 // Surfaced deliberately: a non-bigint id cannot be held by another
                 // package's `morphs()` column on a strict engine, so a host that has
                 // flipped this needs to see it without reading a migration.
-                'Key type' => KeyType::fromConfig('credits.primary_key_type')->value,
+                'Primary key type' => KeyType::fromConfig('credits.primary_key_type')->value,
+                // The outbound axis: the key type of the creditable morph column. A
+                // different axis from the credits table's own id — see the config.
+                'Creditable key type' => KeyType::fromConfig('credits.key_type')->value,
                 'Overdraft' => config('credits.allow_overdraft', false) === true ? 'ALLOWED' : 'BLOCKED',
                 'Minimum balance' => (string) (int) config('credits.minimum_balance', 0),
                 'Default bucket' => (string) config('credits.default_bucket', 'default'),
                 'Scale' => (string) (int) config('credits.scale', 0),
                 'Modifiable resolvers' => self::modifiableResolvers(),
             ]);
+    }
+
+    public function boot(): void
+    {
+        parent::boot();
+
+        // The credits migration keys its `creditable` polymorphic column through the
+        // toolkit's `morphKey` macro, so it must exist before the migration runs.
+        // Registration is idempotent — the toolkit guards it with `hasMacro()`.
+        $this->registerBlueprintMacros();
     }
 
     /**

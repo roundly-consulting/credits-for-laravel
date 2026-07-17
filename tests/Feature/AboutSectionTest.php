@@ -43,7 +43,10 @@ it('renders the credits section without leaking the ledger it guards', function 
         ],
         mustRender: [
             'Model',
-            'Key type',
+            // Both key axes render distinctly: the inbound PK and the outbound creditable
+            // morph key are independent config keys, each defaulting to bigint.
+            'Primary key type',
+            'Creditable key type',
             'bigint',
             'Overdraft',
             'Minimum balance',
