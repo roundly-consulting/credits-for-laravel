@@ -18,8 +18,7 @@ ArchPresets::strictTypes('RoundlyConsulting\Credits');
  * host to subclass (pinned by the preset below instead), and CreditsException, the base
  * every credits error extends so a host can catch them uniformly.
  */
-ArchPresets::finalByDefault('RoundlyConsulting\Credits')
-    ->ignoring([Credit::class, CreditsException::class]);
+ArchPresets::finalByDefault('RoundlyConsulting\Credits', [Credit::class, CreditsException::class]);
 
 /**
  * The counter-weight, and the fleet's 7×-shipped fatal: `final` on a config-swappable
