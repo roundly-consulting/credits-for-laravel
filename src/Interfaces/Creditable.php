@@ -6,6 +6,7 @@ namespace RoundlyConsulting\Credits\Interfaces;
 
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
+use RoundingMode;
 use RoundlyConsulting\Credits\Models\Credit;
 
 interface Creditable
@@ -24,12 +25,12 @@ interface Creditable
 
     public function totalCreditsBalance(?CarbonInterface $at = null): int;
 
-    public function displayCredits(int $amount, ?int $scale = null, ?int $rounding = null): string;
+    public function displayCredits(int $amount, ?int $scale = null, ?RoundingMode $rounding = null): string;
 
     public function displayCreditsBalance(
         ?string $bucket = null,
         ?int $scale = null,
-        ?int $rounding = null,
+        ?RoundingMode $rounding = null,
         ?CarbonInterface $at = null,
     ): string;
 

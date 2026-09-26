@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 use RoundlyConsulting\Credits\Exceptions\CreditsException;
 use RoundlyConsulting\Credits\Models\Credit;
+use RoundlyConsulting\Money\Math\MinorUnits;
+use RoundlyConsulting\Money\Support\RoundingModes;
 use RoundlyConsulting\Testing\Arch\ArchPresets;
 
 /**
@@ -63,3 +65,36 @@ ArchPresets::morphColumnsUseTheSeam(__DIR__.'/../database/migrations');
 ArchPresets::runtimeRequireIsWhitelisted(__DIR__.'/../composer.json');
 
 ArchPresets::noDebuggingLeftovers();
+
+/**
+ * Money's public API only. money-for-laravel marks its engine (`IntegerString`,
+ * `Calculator`, `Rounder`, `DecimalString`, the casts, …) `@internal`: those may change
+ * shape at any time. Credits builds on the documented seams — `Math\MinorUnits`,
+ * `Support\RoundingModes`, `Money`, `Currency`, the exceptions — and this pins it there.
+ * Every money class named anywhere in `src/` (import or inline FQCN) is checked, and the
+ * two seams the formatting core rests on must be among them, so the rule cannot pass over
+ * an empty scan.
+ */
+it('references no @internal money class, only its public api', function (): void {
+    $referenced = [];
+
+    $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(__DIR__.'/../src', FilesystemIterator::SKIP_DOTS));
+
+    foreach ($files as $file) {
+        preg_match_all('/RoundlyConsulting\\\\Money\\\\[A-Za-z0-9_\\\\]+/', (string) file_get_contents($file->getPathname()), $matches);
+
+        foreach ($matches[0] as $class) {
+            $referenced[] = ltrim($class, '\\');
+        }
+    }
+
+    $referenced = array_values(array_unique($referenced));
+
+    expect($referenced)->toContain(MinorUnits::class, RoundingModes::class);
+
+    foreach ($referenced as $class) {
+        expect(class_exists($class) || interface_exists($class))->toBeTrue("{$class} does not exist")
+            ->and(str_contains((string) (new ReflectionClass($class))->getDocComment(), '@internal'))
+            ->toBeFalse("{$class} is @internal to money-for-laravel");
+    }
+});

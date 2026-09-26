@@ -52,10 +52,32 @@ it('renders the credits section without leaking the ledger it guards', function 
             'Minimum balance',
             'Default bucket',
             'Scale',
+            // The rounding mode renders in its config spelling (a \RoundingMode case in
+            // snake_case), which is what a host sets in CREDITS_ROUNDING.
+            'Rounding',
+            'half_away_from_zero',
             'Modifiable resolvers',
             // The count itself must render — the positive proof that the resolver line is
             // reporting rather than silently empty.
             '1 registered',
         ],
+    );
+});
+
+it('reports a misconfigured rounding mode instead of failing the about command', function (): void {
+    config()->set('credits.rounding', 'half_up');
+
+    expect('credits')->toLeakNoSecrets(
+        secrets: ['half_up'],
+        mustRender: ['Rounding', 'INVALID'],
+    );
+});
+
+it('normalises a native rounding mode set in config to its config spelling', function (): void {
+    config()->set('credits.rounding', RoundingMode::HalfEven);
+
+    expect('credits')->toLeakNoSecrets(
+        secrets: ['HalfEven'],
+        mustRender: ['Rounding', 'half_even'],
     );
 });

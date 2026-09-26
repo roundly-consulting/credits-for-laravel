@@ -110,10 +110,10 @@ return [
     | Credits are stored as whole integers to avoid floating-point drift. To
     | represent fractional credits, treat the stored value as minor units and
     | set this to the number of decimal places those minor units represent
-    | (for example 2 means a stored value of 150 is displayed as 1.50). The
-    | package never multiplies or divides by this value — formatting and
-    | parsing happen in the host application; this key documents the chosen
-    | convention so every consumer agrees on it. Defaults to 0 (whole units).
+    | (for example 2 means a stored value of 150 is displayed as 1.50). Only
+    | the display helpers (`displayCredits()`, `displayCreditsBalance()`)
+    | read it; the ledger itself never multiplies or divides by it. Defaults
+    | to 0 (whole units).
     |
     */
 
@@ -126,18 +126,20 @@ return [
     |
     | The default rounding mode applied by the display helpers when a requested
     | display scale is smaller than the stored scale and digits must be dropped.
-    | Use one of PHP's rounding constants:
+    | Name one of PHP 8.4's native \RoundingMode cases in snake_case:
     |
-    |   PHP_ROUND_HALF_UP   — round halves away from zero (default)
-    |   PHP_ROUND_HALF_DOWN — round halves toward zero
-    |   PHP_ROUND_HALF_EVEN — round halves to the nearest even (banker's rounding)
-    |   PHP_ROUND_HALF_ODD  — round halves to the nearest odd
+    |   half_away_from_zero — halves away from zero (default; was PHP_ROUND_HALF_UP)
+    |   half_towards_zero   — halves toward zero (was PHP_ROUND_HALF_DOWN)
+    |   half_even           — halves to the nearest even, banker's rounding
+    |   half_odd            — halves to the nearest odd
+    |   towards_zero, away_from_zero, positive_infinity, negative_infinity
     |
-    | Individual calls may override this via the `rounding` argument.
+    | An unknown value throws InvalidMoneyConfiguration on first use.
+    | Individual calls may override this with a \RoundingMode argument.
     |
     */
 
-    'rounding' => PHP_ROUND_HALF_UP,
+    'rounding' => env('CREDITS_ROUNDING', 'half_away_from_zero'),
 
     /*
     |--------------------------------------------------------------------------

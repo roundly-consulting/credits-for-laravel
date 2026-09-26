@@ -7,6 +7,7 @@ namespace RoundlyConsulting\Credits\Traits;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
+use RoundingMode;
 use RoundlyConsulting\Credits\Actions\FormatCreditsAction;
 use RoundlyConsulting\Credits\Actions\GetCreditsBalanceAction;
 use RoundlyConsulting\Credits\Actions\ModifyCreditsAction;
@@ -62,7 +63,7 @@ trait HasCredits
      * Format any integer minor-unit amount into a plain decimal string using the configured
      * scale, with optional per-call scale and rounding-mode overrides.
      */
-    public function displayCredits(int $amount, ?int $scale = null, ?int $rounding = null): string
+    public function displayCredits(int $amount, ?int $scale = null, ?RoundingMode $rounding = null): string
     {
         return app(FormatCreditsAction::class)->execute($amount, $scale, $rounding);
     }
@@ -73,7 +74,7 @@ trait HasCredits
     public function displayCreditsBalance(
         ?string $bucket = null,
         ?int $scale = null,
-        ?int $rounding = null,
+        ?RoundingMode $rounding = null,
         ?CarbonInterface $at = null,
     ): string {
         return $this->displayCredits($this->creditsBalance($at, $bucket), $scale, $rounding);

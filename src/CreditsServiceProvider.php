@@ -6,6 +6,8 @@ namespace RoundlyConsulting\Credits;
 
 use RoundlyConsulting\Credits\Commands\ModifyCreditsCommand;
 use RoundlyConsulting\Credits\Support\CreditModel;
+use RoundlyConsulting\Money\Exceptions\InvalidMoneyConfiguration;
+use RoundlyConsulting\Money\Support\RoundingModes;
 use RoundlyConsulting\PackageToolkit\Concerns\RegistersBlueprintMacros;
 use RoundlyConsulting\PackageToolkit\Enums\KeyType;
 use RoundlyConsulting\PackageToolkit\Package;
@@ -38,6 +40,7 @@ final class CreditsServiceProvider extends PackageServiceProvider
                 'Minimum balance' => (string) (int) config('credits.minimum_balance', 0),
                 'Default bucket' => (string) config('credits.default_bucket', 'default'),
                 'Scale' => (string) (int) config('credits.scale', 0),
+                'Rounding' => self::rounding(),
                 'Modifiable resolvers' => self::modifiableResolvers(),
             ]);
     }
@@ -50,6 +53,20 @@ final class CreditsServiceProvider extends PackageServiceProvider
         // toolkit's `morphKey` macro, so it must exist before the migration runs.
         // Registration is idempotent — the toolkit guards it with `hasMacro()`.
         $this->registerBlueprintMacros();
+    }
+
+    /**
+     * The configured display rounding mode, normalised to its config spelling. A
+     * misconfigured value renders as INVALID rather than failing the whole `about` command —
+     * the display helpers throw on it at first use.
+     */
+    private static function rounding(): string
+    {
+        try {
+            return RoundingModes::toValue(RoundingModes::fromValue(config('credits.rounding'), 'credits.rounding'));
+        } catch (InvalidMoneyConfiguration) {
+            return 'INVALID';
+        }
     }
 
     /**
