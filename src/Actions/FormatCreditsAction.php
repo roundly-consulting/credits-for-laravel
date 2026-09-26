@@ -13,7 +13,8 @@ final class FormatCreditsAction
     /**
      * Format an integer minor-unit amount into a locale-free plain decimal string.
      *
-     * The stored integer is interpreted at the configured `credits.scale`. `$scale`
+     * The stored integer is interpreted at `$storedScale` — the configured `credits.scale`
+     * unless given (a currency-denominated bucket passes its currency exponent). `$scale`
      * overrides how many decimal places are rendered, rounding once with `$rounding` (default
      * `credits.rounding`) when the requested scale is smaller than the stored scale.
      *
@@ -22,9 +23,13 @@ final class FormatCreditsAction
      * `"9223372036854775807.000000"`, never a float. Scales are capped at
      * {@see MinorUnits::MAX_SCALE}. No thousands separators or locale formatting are applied.
      */
-    public function execute(int $amount, ?int $scale = null, ?RoundingMode $rounding = null): string
-    {
-        $stored = (int) config('credits.scale', 0);
+    public function execute(
+        int $amount,
+        ?int $scale = null,
+        ?RoundingMode $rounding = null,
+        ?int $storedScale = null,
+    ): string {
+        $stored = $storedScale ?? (int) config('credits.scale', 0);
         $display = max(0, $scale ?? $stored);
         $mode = $rounding ?? RoundingModes::fromValue(config('credits.rounding'), 'credits.rounding');
 

@@ -35,4 +35,22 @@ abstract class TestCase extends PackageTestCase
             __DIR__.'/database/migrations',
         ];
     }
+
+    /**
+     * Two custom money currencies, registered the way a host does it — through
+     * `money.currencies.custom`, before the providers boot — so the denominated-bucket
+     * suite can map buckets to loyalty points (`PTS`, exponent 0) and to an 18-decimal
+     * crypto unit (`ETH`), next to the bundled ISO list.
+     *
+     * @return array<string, mixed>
+     */
+    protected function configBeforeBoot(): array
+    {
+        return array_merge(parent::configBeforeBoot(), [
+            'money.currencies.custom' => [
+                'PTS' => ['exponent' => 0, 'name' => 'Loyalty points', 'symbol' => 'pts'],
+                'ETH' => ['exponent' => 18, 'symbol' => 'Ξ'],
+            ],
+        ]);
+    }
 }

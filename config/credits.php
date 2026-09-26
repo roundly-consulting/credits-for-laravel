@@ -113,7 +113,8 @@ return [
     | (for example 2 means a stored value of 150 is displayed as 1.50). Only
     | the display helpers (`displayCredits()`, `displayCreditsBalance()`)
     | read it; the ledger itself never multiplies or divides by it. Defaults
-    | to 0 (whole units).
+    | to 0 (whole units). A currency-denominated bucket (see "Currencies"
+    | below) ignores this value — its scale is the currency's exponent.
     |
     */
 
@@ -140,6 +141,30 @@ return [
     */
 
     'rounding' => env('CREDITS_ROUNDING', 'half_away_from_zero'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Currencies (currency-denominated buckets)
+    |--------------------------------------------------------------------------
+    |
+    | Map a bucket name to a money-for-laravel currency code (ISO 4217 or a
+    | custom currency such as loyalty points). A denominated bucket's integer
+    | amounts are minor units of that currency, so its balance is available
+    | as a Money (`creditsBalanceMoney()`), it can be modified with a Money of
+    | the same currency only (`modifyCreditsMoney()`), and its display scale
+    | is the currency exponent. Buckets not listed stay plain integer credits.
+    |
+    | Codes are resolved lazily, on first use — a custom currency registered
+    | with Currencies::register() in your own provider's boot() is accepted.
+    | The ledger column is a signed 64-bit integer: a bucket holds at most
+    | 9223372036854775807 minor units of its currency.
+    |
+    */
+
+    'currencies' => [
+        // 'store_credit' => 'EUR',
+        // 'points' => 'PTS',
+    ],
 
     /*
     |--------------------------------------------------------------------------

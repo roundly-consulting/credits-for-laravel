@@ -11,11 +11,17 @@ use RoundingMode;
 use RoundlyConsulting\Credits\Actions\FormatCreditsAction;
 use RoundlyConsulting\Credits\Actions\GetCreditsBalanceAction;
 use RoundlyConsulting\Credits\Actions\ModifyCreditsAction;
+use RoundlyConsulting\Credits\Actions\ResolveBucketCurrencyAction;
 use RoundlyConsulting\Credits\Actions\SetCreditsAction;
 use RoundlyConsulting\Credits\DataTransferObjects\CreditChangeData;
+use RoundlyConsulting\Credits\Exceptions\BucketNotDenominatedException;
 use RoundlyConsulting\Credits\Interfaces\Creditable;
 use RoundlyConsulting\Credits\Models\Credit;
 use RoundlyConsulting\Credits\Support\CreditModel;
+use RoundlyConsulting\Money\Currency;
+use RoundlyConsulting\Money\Exceptions\AmountOverflow;
+use RoundlyConsulting\Money\Exceptions\CurrencyMismatch;
+use RoundlyConsulting\Money\Money;
 
 /**
  * @mixin Model
@@ -69,7 +75,9 @@ trait HasCredits
     }
 
     /**
-     * Format a single bucket's balance into a plain decimal string.
+     * Format a single bucket's balance into a plain decimal string. A currency-denominated
+     * bucket is read at its currency exponent (and rendered at it unless `$scale`
+     * overrides); every other bucket at `credits.scale`.
      */
     public function displayCreditsBalance(
         ?string $bucket = null,
@@ -77,7 +85,73 @@ trait HasCredits
         ?RoundingMode $rounding = null,
         ?CarbonInterface $at = null,
     ): string {
-        return $this->displayCredits($this->creditsBalance($at, $bucket), $scale, $rounding);
+        return app(FormatCreditsAction::class)->execute(
+            $this->creditsBalance($at, $bucket),
+            $scale,
+            $rounding,
+            $this->creditsCurrency($bucket)?->exponent,
+        );
+    }
+
+    /**
+     * The currency a bucket is denominated in (`credits.currencies`), or null when its
+     * integers are plain credits. Resolved lazily against money's currency registry.
+     */
+    public function creditsCurrency(?string $bucket = null): ?Currency
+    {
+        return app(ResolveBucketCurrencyAction::class)->execute($bucket);
+    }
+
+    /**
+     * A denominated bucket's balance as a Money of its currency — the same integer
+     * `creditsBalance()` returns, read as minor units.
+     *
+     * @throws BucketNotDenominatedException
+     */
+    public function creditsBalanceMoney(?string $bucket = null, ?CarbonInterface $at = null): Money
+    {
+        $currency = app(ResolveBucketCurrencyAction::class)->denominated($bucket);
+
+        return Money::ofMinor($this->creditsBalance($at, $bucket), $currency);
+    }
+
+    /**
+     * Credit (positive) or debit (negative) a denominated bucket by a Money of its currency.
+     * Runs through `modifyCredits()` — the same overdraft, minimum-balance and locking
+     * rules, the same event — after two checks that happen before anything is written:
+     * the currency must be the bucket's, and the amount must fit the signed 64-bit ledger.
+     *
+     * @param  array<string, mixed>|null  $meta
+     *
+     * @throws BucketNotDenominatedException
+     * @throws CurrencyMismatch
+     * @throws AmountOverflow
+     */
+    public function modifyCreditsMoney(
+        Money $amount,
+        ?string $description = null,
+        ?array $meta = null,
+        bool $allowOverdraft = false,
+        ?string $bucket = null,
+    ): Credit {
+        $currency = app(ResolveBucketCurrencyAction::class)->denominated($bucket);
+
+        if (! $amount->currency()->equals($currency)) {
+            throw CurrencyMismatch::between($amount->currency(), $currency);
+        }
+
+        return $this->modifyCredits($amount->minorInt(), $description, $meta, $allowOverdraft, $bucket);
+    }
+
+    /**
+     * A denominated bucket's balance, locale-formatted by money's formatter
+     * (`Money::format()`), e.g. "€10.50".
+     *
+     * @throws BucketNotDenominatedException
+     */
+    public function formatCreditsBalance(?string $bucket = null, ?string $locale = null): string
+    {
+        return $this->creditsBalanceMoney($bucket)->format($locale);
     }
 
     /**
