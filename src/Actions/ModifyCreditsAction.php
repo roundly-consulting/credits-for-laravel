@@ -50,6 +50,8 @@ final class ModifyCreditsAction
             return;
         }
 
+        $this->lockOwner($creditable);
+
         $available = $this->balance->execute(
             $creditable,
             lockForUpdate: true,
@@ -64,5 +66,24 @@ final class ModifyCreditsAction
                 available: $available,
             );
         }
+    }
+
+    /**
+     * Serialise every guarded debit of one owner on the owner's own row, before the balance
+     * is read.
+     *
+     * Locking the ledger rows alone is not enough on Postgres: under READ COMMITTED a
+     * `SELECT … FOR UPDATE` that had to wait for a racing debit answers from the snapshot
+     * taken when it *started*, so it never sees the ledger row that debit inserted — and
+     * approves a second spend against the old balance. Nor can it lock anything in an empty
+     * bucket. Waiting on the owner row first means the balance read that follows starts
+     * only after the racing debit committed, and sees its row.
+     */
+    private function lockOwner(Model&Creditable $creditable): void
+    {
+        $creditable->newQueryWithoutScopes()
+            ->whereKey($creditable->getKey())
+            ->lockForUpdate()
+            ->first([$creditable->getKeyName()]);
     }
 }

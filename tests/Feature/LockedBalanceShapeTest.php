@@ -40,7 +40,7 @@ beforeEach(function (): void {
  * assertion — it rejects the aggregate form outright, which is what BalanceConcurrencyTest
  * observes.
  */
-it('locks the ledger rows without an aggregate the engine would reject', function (): void {
+it('locks the owner, then the ledger rows without an aggregate the engine would reject', function (): void {
     $connection = DB::connection();
     $connection->setQueryGrammar(new LockRecordingGrammar($connection));
     LockRecorder::listenForMarkers();
@@ -54,14 +54,17 @@ it('locks the ledger rows without an aggregate the engine would reject', functio
 
     $locks = LockRecorder::recorded();
 
-    // The guard takes exactly one lock, and it is a real FOR UPDATE.
-    expect($locks)->toHaveCount(1)
-        ->and($locks[0]['marker'])->toBe('lock-for-update')
+    // The guard takes two locks, both real FOR UPDATEs, in a fixed order: the owner's row
+    // first (it serialises racing debits — see RacingDebitsOnPostgresTest), then the ledger.
+    expect($locks)->toHaveCount(2)
+        ->and(array_column($locks, 'marker'))->each->toBe('lock-for-update')
+        ->and(strtolower($locks[0]['sql']))->toContain('from "users"')
+        ->and(strtolower($locks[1]['sql']))->toContain('from "credits"')
         // The bug, pinned: `sum(...) ... for update` is invalid SQL on Postgres and MySQL
         // alike. The locked read must select the rows, not aggregate them.
-        ->and(strtolower($locks[0]['sql']))->not->toContain('sum(')
-        ->and(strtolower($locks[0]['sql']))->toContain('"amount"')
-        // And it must still be a lock that serialises: taken inside the guard's
-        // transaction, so a racing debit blocks on it rather than reading a stale sum.
-        ->and($locks[0]['transactionDepth'])->toBe(1);
+        ->and(strtolower($locks[1]['sql']))->not->toContain('sum(')
+        ->and(strtolower($locks[1]['sql']))->toContain('"amount"')
+        // And both must be locks that serialise: taken inside the guard's transaction, so
+        // a racing debit blocks on them rather than reading a stale sum.
+        ->and(array_column($locks, 'transactionDepth'))->each->toBe(1);
 })->skip(fn (): bool => DriverMatrix::driver() !== 'sqlite', 'recording grammar is sqlite-only');

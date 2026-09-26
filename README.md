@@ -496,8 +496,12 @@ failing the run.
 ### Concurrency
 
 The balance is never a stored column — it is the sum of an append-only ledger. A deduction
-runs inside a transaction that reads the ledger under `lockForUpdate()` before the overdraft
-guard decides, so two racing debits serialise and the second cannot overdraw. Because every
+runs inside a transaction that first locks the owner's own row (`lockForUpdate()` on your
+creditable model), then reads the ledger under `lockForUpdate()` before the overdraft guard
+decides, so two racing debits of one owner serialise and the second cannot overdraw — also on
+Postgres, where a locked ledger read that had to wait would otherwise decide against the
+balance from before the racing debit, and also in an empty bucket with a negative
+`minimum_balance`. The owner row is held only for that short transaction. Because every
 change is written as a new delta row (never an absolute balance), a change that lands between
 the balance read and the write is folded in, never lost.
 
