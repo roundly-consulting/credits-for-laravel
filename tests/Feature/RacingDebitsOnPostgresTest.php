@@ -111,7 +111,7 @@ it('refuses a second debit that waited on the first instead of deciding on a sta
     expect($outcome)->toBe('refused')
         ->and($user->creditsBalance())->toBe(40)
         ->and($user->credits()->count())->toBe(2);
-})->skip(fn (): bool => DriverMatrix::driver() !== 'pgsql' || ! function_exists('pcntl_fork'), 'needs a real engine and a second process');
+})->skip(fn (): bool => DriverMatrix::driver() !== 'pgsql', 'needs a real engine (and pcntl + posix for the second process)');
 
 it('serialises two debits on an empty bucket when the floor is below zero', function (): void {
     config()->set('credits.minimum_balance', -100);
@@ -137,4 +137,4 @@ it('serialises two debits on an empty bucket when the floor is below zero', func
     // −60 then −60 would be −120, below the −100 floor.
     expect($outcome)->toBe('refused')
         ->and($user->creditsBalance())->toBe(-60);
-})->skip(fn (): bool => DriverMatrix::driver() !== 'pgsql' || ! function_exists('pcntl_fork'), 'needs a real engine and a second process');
+})->skip(fn (): bool => DriverMatrix::driver() !== 'pgsql', 'needs a real engine (and pcntl + posix for the second process)');
