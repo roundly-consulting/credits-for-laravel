@@ -14,10 +14,21 @@ balance is the sum of its rows — optionally as of a point in time.
 
 ## Requirements
 
-- PHP 8.4
+- PHP 8.4 with `ext-bcmath`
 - Laravel 12 or 13
 - [`roundly-consulting/package-toolkit-for-laravel`](https://github.com/roundly-consulting/package-toolkit-for-laravel)
   (the shared package bootstrapper — a hard dependency, installs automatically)
+- [`roundly-consulting/money-for-laravel`](https://github.com/roundly-consulting/money-for-laravel)
+  (the display rounding core and currency-denominated buckets — a hard dependency, installs
+  automatically)
+
+## Integrates with
+
+- **[money-for-laravel](https://github.com/roundly-consulting/money-for-laravel)** — always on.
+  The display helpers rescale and round on money's exact integer-string core
+  (`MinorUnits`) with PHP 8.4's native `\RoundingMode`, and any bucket can be denominated in a
+  money currency — ISO (`EUR`) or custom (`PTS` loyalty points) — to read and write it as a
+  `Money`. See [Currency-denominated buckets](#currency-denominated-buckets).
 
 ## Installation
 
@@ -73,7 +84,12 @@ return [
 
     'scale' => 0,
 
-    'rounding' => PHP_ROUND_HALF_UP,
+    'rounding' => env('CREDITS_ROUNDING', 'half_away_from_zero'),
+
+    'currencies' => [
+        // 'store_credit' => 'EUR',
+        // 'points' => 'PTS',
+    ],
 
     'modifiable' => [
         //
@@ -89,8 +105,9 @@ return [
 | `allow_overdraft` | `bool` | `false` | `CREDITS_ALLOW_OVERDRAFT` | When `false`, a deduction that would take the balance below `minimum_balance` is rejected with an `InsufficientCreditsException`. Set `true` to permit negative balances globally. |
 | `minimum_balance` | `int` | `0` | — | The floor enforced when overdraft is disallowed. |
 | `default_bucket` | `string` | `'default'` | — | The bucket used for reads and writes when a call omits one. A bucket-less balance query returns this bucket's balance only — it does not sum across buckets. See [Named buckets](#named-buckets). |
-| `scale` | `int` | `0` | — | The number of decimal places the stored integer encodes (the integer-minor-unit convention for fractional credits). Used by the display helpers. See [Displaying balances](#displaying-balances). |
-| `rounding` | `int` | `PHP_ROUND_HALF_UP` | — | Default rounding mode for the display helpers when a requested display scale is smaller than the stored scale. One of `PHP_ROUND_HALF_UP`, `PHP_ROUND_HALF_DOWN`, `PHP_ROUND_HALF_EVEN` (banker's), or `PHP_ROUND_HALF_ODD`. Overridable per call. |
+| `scale` | `int` | `0` | — | The number of decimal places the stored integer encodes (the integer-minor-unit convention for fractional credits). Used by the display helpers; a [currency-denominated bucket](#currency-denominated-buckets) ignores it (its scale is the currency exponent). See [Displaying balances](#displaying-balances). |
+| `rounding` | `string` | `'half_away_from_zero'` | `CREDITS_ROUNDING` | Default rounding mode for the display helpers when a requested display scale is smaller than the stored scale: a PHP 8.4 `\RoundingMode` case in snake_case — `half_away_from_zero`, `half_towards_zero`, `half_even` (banker's), `half_odd`, `towards_zero`, `away_from_zero`, `positive_infinity`, `negative_infinity`. An unknown value (including the legacy `PHP_ROUND_*` integers) throws `InvalidMoneyConfiguration` on first use. Overridable per call with a `\RoundingMode`. See [Upgrading](#upgrading). |
+| `currencies` | `array<string, string>` | `[]` | — | Bucket name → money currency code (ISO or custom). A listed bucket's integers are minor units of that currency. Resolved lazily on first use. See [Currency-denominated buckets](#currency-denominated-buckets). |
 | `modifiable` | `array<Closure>` | `[]` | — | Resolvers invoked by the `credits:modify` command. Each closure receives a `$modify` callback that applies the requested change to a `Creditable` entity. |
 
 The package ships with sensible defaults and works with **zero** host configuration.
@@ -284,14 +301,26 @@ $user->displayCredits(123450);       // "1234.50"  (format any integer amount)
 
 `displayCredits()` and `displayCreditsBalance()` take an optional per-call `scale` override
 (the number of decimal places to render) and an optional `rounding` mode. When the requested
-display scale is **smaller** than the stored scale, the dropped digits are rounded using the
-mode — defaulting to `config('credits.rounding')` (`PHP_ROUND_HALF_UP`):
+display scale is **smaller** than the stored scale, the dropped digits are rounded once using
+the mode — a native `\RoundingMode`, defaulting to `config('credits.rounding')`
+(`half_away_from_zero`):
 
 ```php
-$user->displayCredits(123450, scale: 0);                          // "1235"  (rounded half-up)
-$user->displayCredits(123450, scale: 0, rounding: PHP_ROUND_HALF_DOWN); // "1234"
-$user->displayCredits(-123450);                                   // "-1234.50"
+$user->displayCredits(123450, scale: 0);                                         // "1235"
+$user->displayCredits(123450, scale: 0, rounding: \RoundingMode::HalfTowardsZero); // "1234"
+$user->displayCredits(-123450);                                                  // "-1234.50"
 ```
+
+A display scale **larger** than the stored scale renders exactly — the rescale runs on
+arbitrary-precision integer strings, so even `PHP_INT_MAX` never degrades to a float:
+
+```php
+config(['credits.scale' => 0]);
+
+$user->displayCredits(PHP_INT_MAX, scale: 6); // "9223372036854775807.000000"
+```
+
+Display scales are capped at 36 decimal places (`MinorUnits::MAX_SCALE`).
 
 Multi-bucket display composes from the totals above — there are no dedicated display-total
 methods:
@@ -302,8 +331,81 @@ $user->displayCredits($user->creditsBalanceForBuckets(['promotional', 'purchased
 ```
 
 The reusable formatting core is `RoundlyConsulting\Credits\Actions\FormatCreditsAction`
-(`execute(int $amount, ?int $scale = null, ?int $rounding = null): string`), which the trait
-methods delegate to.
+(`execute(int $amount, ?int $scale = null, ?\RoundingMode $rounding = null, ?int $storedScale = null): string`),
+which the trait methods delegate to. It is a thin layer over money-for-laravel's
+`MinorUnits::rescale()` / `MinorUnits::toDecimal()`; `$storedScale` defaults to
+`credits.scale` (a denominated bucket passes its currency exponent).
+
+### Currency-denominated buckets
+
+A bucket can be **denominated** in a [money-for-laravel](https://github.com/roundly-consulting/money-for-laravel)
+currency. Its integer amounts are then minor units of that currency — cents for `EUR`, whole
+points for a custom `PTS` — and it gains money-typed helpers that refuse any other currency:
+
+```php
+// config/credits.php
+'currencies' => [
+    'store_credit' => 'EUR',
+    'points' => 'PTS',   // a custom currency, see below
+],
+```
+
+```php
+use RoundlyConsulting\Money\Money;
+
+$user->creditsCurrency('store_credit');   // Currency EUR   (null for a plain bucket)
+
+$user->modifyCreditsMoney(Money::ofMajor('25.00', 'EUR'), 'gift card', bucket: 'store_credit');
+$user->modifyCreditsMoney(Money::ofMinor(-1050, 'EUR'), 'order #42', bucket: 'store_credit');
+
+$user->creditsBalanceMoney('store_credit');          // Money EUR 14.50
+$user->creditsBalanceMoney('store_credit')->minor(); // "1450" — money amounts are strings
+$user->creditsBalance(bucket: 'store_credit');       // 1450   — the int API is unchanged
+$user->formatCreditsBalance('store_credit', 'en');   // "€14.50" (money's locale formatter)
+$user->displayCreditsBalance('store_credit');        // "14.50"  (read at the EUR exponent)
+```
+
+| Method | Returns | Throws |
+|---|---|---|
+| `creditsCurrency(?string $bucket = null)` | `?Currency` — null when the bucket is not listed | `UnknownCurrency` (code not registered), `InvalidMoneyConfiguration` (malformed map) |
+| `creditsBalanceMoney(?string $bucket = null, ?CarbonInterface $at = null)` | `Money` of the bucket currency — `Money::ofMinor(creditsBalance($at, $bucket), $currency)` | `BucketNotDenominatedException` |
+| `modifyCreditsMoney(Money $amount, ?string $description = null, ?array $meta = null, bool $allowOverdraft = false, ?string $bucket = null)` | the new `Credit` row | `BucketNotDenominatedException`, `CurrencyMismatch`, `AmountOverflow`, `InsufficientCreditsException` |
+| `formatCreditsBalance(?string $bucket = null, ?string $locale = null)` | `Money::format($locale)` of the balance | `BucketNotDenominatedException` |
+
+- **One write path.** `modifyCreditsMoney()` checks the currency, converts with
+  `Money::minorInt()` and calls `modifyCredits()` — the same overdraft guard, minimum balance,
+  row lock and `CreditsModified` event. Every refusal happens **before** anything is written.
+- **Currency identity is code + exponent** (money's `Currency::equals()`): a `USD` amount
+  into an `EUR` bucket throws `CurrencyMismatch`.
+- **`displayCreditsBalance()`** reads a denominated bucket at its currency exponent (and
+  renders there unless `scale` overrides it). `displayCredits(int $amount)` takes no bucket,
+  so it always uses `credits.scale`.
+- **The default bucket** is denominated too when `credits.currencies` lists its name; the
+  helpers then work without a `bucket` argument.
+- **Custom currencies** come from money: `money.currencies.custom` in config, or
+  `Currencies::register(Currency::custom('PTS', 0, 'Loyalty points'))` in your provider's
+  `boot()`. Credits resolves the map **lazily**, on first use, so a registration in a provider
+  that boots after credits' is accepted.
+- **Precision limit.** The ledger column is a signed 64-bit integer, so a denominated bucket
+  holds at most `9223372036854775807` minor units — irrelevant for fiat and points, but an
+  18-decimal currency such as `ETH` tops out at about 9.22 units; denominate large crypto
+  balances in a coarser custom unit (a lower exponent). An amount beyond the range throws
+  money's `AmountOverflow` and writes nothing.
+
+#### Recipe: redeem points for money
+
+Credits does not convert between buckets, but money's exchange layer makes a fixed redemption
+rate a two-liner — here 100 points = 1 EUR:
+
+```php
+use RoundlyConsulting\Money\Exchange\Converter;
+use RoundlyConsulting\Money\Exchange\Providers\ArrayExchangeRateProvider;
+
+$redemption = new Converter(new ArrayExchangeRateProvider(['PTS/EUR' => '0.01'], pivot: null));
+
+$eur = $redemption->convert($user->creditsBalanceMoney('points'), 'EUR', rounding: \RoundingMode::TowardsZero);
+// 1250 PTS → Money EUR 12.50
+```
 
 ### Query scopes
 
@@ -406,7 +508,25 @@ php artisan about --only=credits
 ```
 
 Reports the resolved model, the overdraft policy, the minimum balance, the default bucket, the
-scale, and how many `modifiable` resolvers are registered (a count — never what they resolve).
+scale, the display rounding mode (`INVALID` when `credits.rounding` names no mode), and how
+many `modifiable` resolvers are registered (a count — never what they resolve).
+
+## Upgrading
+
+The display rounding mode moved from PHP's `PHP_ROUND_HALF_*` integers to PHP 8.4's native
+`\RoundingMode` — `credits.rounding` is now a string and the `rounding` argument of
+`displayCredits()` / `displayCreditsBalance()` (and `FormatCreditsAction::execute()`) is a
+`?\RoundingMode`. The mapping is behaviour-identical, including for negative amounts:
+
+| Before | `credits.rounding` | `rounding:` argument |
+|---|---|---|
+| `PHP_ROUND_HALF_UP` | `'half_away_from_zero'` | `\RoundingMode::HalfAwayFromZero` |
+| `PHP_ROUND_HALF_DOWN` | `'half_towards_zero'` | `\RoundingMode::HalfTowardsZero` |
+| `PHP_ROUND_HALF_EVEN` | `'half_even'` | `\RoundingMode::HalfEven` |
+| `PHP_ROUND_HALF_ODD` | `'half_odd'` | `\RoundingMode::HalfOdd` |
+
+A published config still holding a `PHP_ROUND_*` integer throws `InvalidMoneyConfiguration` on
+the first display call — replace it with the string from the table.
 
 ## Testing
 
