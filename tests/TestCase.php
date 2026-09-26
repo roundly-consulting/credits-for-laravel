@@ -6,6 +6,7 @@ namespace RoundlyConsulting\Credits\Tests;
 
 use Illuminate\Support\ServiceProvider;
 use RoundlyConsulting\Credits\CreditsServiceProvider;
+use RoundlyConsulting\Money\MoneyServiceProvider;
 use RoundlyConsulting\Testing\PackageTestCase;
 
 abstract class TestCase extends PackageTestCase
@@ -18,7 +19,7 @@ abstract class TestCase extends PackageTestCase
      */
     protected function packageProviders(): array
     {
-        return [CreditsServiceProvider::class];
+        return [MoneyServiceProvider::class, CreditsServiceProvider::class];
     }
 
     /**
