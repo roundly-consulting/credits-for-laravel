@@ -116,7 +116,7 @@ return [
 | `minimum_balance` | `int` | `0` | — | The floor enforced when overdraft is disallowed. |
 | `default_bucket` | `string` | `'default'` | — | The bucket used for reads and writes when a call omits one. A bucket-less balance query returns this bucket's balance only — it does not sum across buckets. See [Named buckets](#named-buckets). |
 | `scale` | `int` | `0` | — | The number of decimal places the stored integer encodes (the integer-minor-unit convention for fractional credits). Used by the display helpers; a [currency-denominated bucket](#currency-denominated-buckets) ignores it (its scale is the currency exponent). See [Displaying balances](#displaying-balances). |
-| `rounding` | `string` | `'half_away_from_zero'` | `CREDITS_ROUNDING` | Default rounding mode for the display helpers when a requested display scale is smaller than the stored scale: a PHP 8.4 `\RoundingMode` case in snake_case — `half_away_from_zero`, `half_towards_zero`, `half_even` (banker's), `half_odd`, `towards_zero`, `away_from_zero`, `positive_infinity`, `negative_infinity`. An unknown value (including the legacy `PHP_ROUND_*` integers) throws `InvalidMoneyConfiguration` on first use. Overridable per call with a `\RoundingMode`. See [Upgrading](#upgrading). |
+| `rounding` | `string` | `'half_away_from_zero'` | `CREDITS_ROUNDING` | Default rounding mode for the display helpers when a requested display scale is smaller than the stored scale: a PHP 8.4 `\RoundingMode` case in snake_case — `half_away_from_zero`, `half_towards_zero`, `half_even` (banker's), `half_odd`, `towards_zero`, `away_from_zero`, `positive_infinity`, `negative_infinity`. An unknown value (such as a `PHP_ROUND_*` integer) throws `InvalidMoneyConfiguration` on first use. Overridable per call with a `\RoundingMode`. |
 | `currencies` | `array<string, string>` | `[]` | — | Bucket name → money currency code (ISO or custom). A listed bucket's integers are minor units of that currency. Resolved lazily on first use. See [Currency-denominated buckets](#currency-denominated-buckets). |
 | `modifiable` | `array<Closure>` | `[]` | — | Resolvers invoked by the `credits:modify` command. Each closure receives a `$modify` callback that applies the requested change to a `Creditable` entity. |
 
@@ -524,23 +524,6 @@ php artisan about --only=credits
 Reports the resolved model, the overdraft policy, the minimum balance, the default bucket, the
 scale, the display rounding mode (`INVALID` when `credits.rounding` names no mode), and how
 many `modifiable` resolvers are registered (a count — never what they resolve).
-
-## Upgrading
-
-The display rounding mode moved from PHP's `PHP_ROUND_HALF_*` integers to PHP 8.4's native
-`\RoundingMode` — `credits.rounding` is now a string and the `rounding` argument of
-`displayCredits()` / `displayCreditsBalance()` (and `FormatCreditsAction::execute()`) is a
-`?\RoundingMode`. The mapping is behaviour-identical, including for negative amounts:
-
-| Before | `credits.rounding` | `rounding:` argument |
-|---|---|---|
-| `PHP_ROUND_HALF_UP` | `'half_away_from_zero'` | `\RoundingMode::HalfAwayFromZero` |
-| `PHP_ROUND_HALF_DOWN` | `'half_towards_zero'` | `\RoundingMode::HalfTowardsZero` |
-| `PHP_ROUND_HALF_EVEN` | `'half_even'` | `\RoundingMode::HalfEven` |
-| `PHP_ROUND_HALF_ODD` | `'half_odd'` | `\RoundingMode::HalfOdd` |
-
-A published config still holding a `PHP_ROUND_*` integer throws `InvalidMoneyConfiguration` on
-the first display call — replace it with the string from the table.
 
 ## Testing
 
