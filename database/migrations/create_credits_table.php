@@ -38,5 +38,15 @@ return new class extends Migration
 
             $table->index(['creditable_type', 'creditable_id', 'bucket']);
         });
+
+        // One row per owner, bumped by every balance-changing write so racing writes of one
+        // owner serialise on every isolation level (see Support\OwnerLock). Never read for a
+        // balance — the ledger above stays the only source of truth.
+        Schema::create('credit_locks', function (Blueprint $table) use ($morphKeyType): void {
+            $table->morphKey('creditable', $morphKeyType, nullable: false);
+            $table->unsignedBigInteger('version')->default(0);
+
+            $table->primary(['creditable_type', 'creditable_id']);
+        });
     }
 };

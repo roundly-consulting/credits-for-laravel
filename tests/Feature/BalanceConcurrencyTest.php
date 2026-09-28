@@ -64,10 +64,12 @@ it('persists a change as an append-only delta row, never an absolute balance wri
         static fn (string $sql): bool => str_starts_with($sql, 'insert into') || str_starts_with($sql, 'update '),
     ));
 
-    // A single INSERT of the delta. Nothing rewrites a balance, so there is no
-    // read-modify-write to lose: two concurrent changes both land as rows.
-    expect($writes)->toHaveCount(1)
-        ->and($writes[0])->toStartWith('insert into')->toContain('"credits"')
+    // The owner-lock bump, then a single INSERT of the delta. Nothing rewrites a balance, so
+    // there is no read-modify-write to lose: two concurrent changes both land as rows. The
+    // lock row holds a version counter only — never a balance.
+    expect($writes)->toHaveCount(2)
+        ->and($writes[0])->toStartWith('update "credit_locks" set "version" = "version" + 1')
+        ->and($writes[1])->toStartWith('insert into')->toContain('"credits"')
         ->and($user->creditsBalance())->toBe(60);
 });
 
@@ -86,7 +88,7 @@ it('reads the ledger under a row lock, inside the transaction, before the guard 
     expect(LockRecordingCredit::$locks)->toBe([1]);
 });
 
-it('does not lock when the change cannot overdraw', function (): void {
+it('reads every change under the lock, so the event balance is exact', function (): void {
     config()->set('credits.model', LockRecordingCredit::class);
 
     $user = User::query()->create(['name' => 'Ada']);
@@ -94,7 +96,39 @@ it('does not lock when the change cannot overdraw', function (): void {
     $user->modifyCredits(100);
     $user->modifyCredits(-10, allowOverdraft: true);
 
-    expect(LockRecordingCredit::$locks)->toBe([]);
+    expect(LockRecordingCredit::$locks)->toBe([1, 1]);
+});
+
+// Regression: setTo() computed its delta from a plain SUM. On MySQL's default REPEATABLE READ
+// that is a consistent read, answered from a snapshot a host transaction may have opened
+// before the lock wait — so two racing "set to 500" calls each applied +400. A locked read is
+// a current read on every engine.
+it('reads the setTo balance under a row lock, inside its transaction', function (): void {
+    config()->set('credits.model', LockRecordingCredit::class);
+
+    $user = User::query()->create(['name' => 'Ada']);
+    $user->setCreditsTo(100);
+
+    LockRecordingCredit::resetLocks();
+
+    $user->setCreditsTo(500);
+
+    // setTo's own read at depth 1, then the nested modify's guard read inside it.
+    expect(LockRecordingCredit::$locks)->toBe([1, 2])
+        ->and($user->creditsBalance())->toBe(500);
+});
+
+it('bumps the owner lock once per change, creating it on the first', function (): void {
+    $user = User::query()->create(['name' => 'Ada']);
+    $other = User::query()->create(['name' => 'Bob']);
+
+    $user->modifyCredits(100);
+    $user->modifyCredits(-10);
+    $other->modifyCredits(5, bucket: 'promotional');
+
+    expect(DB::table('credit_locks')->count())->toBe(2)
+        ->and(DB::table('credit_locks')->where('creditable_id', $user->id)->value('version'))->toBe(2)
+        ->and(DB::table('credit_locks')->where('creditable_id', $other->id)->value('version'))->toBe(1);
 });
 
 it('serialises racing debits so the second cannot overdraw the balance', function (): void {

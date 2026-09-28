@@ -13,9 +13,11 @@ use RoundlyConsulting\Credits\Models\Credit;
 use RoundlyConsulting\Credits\Support\OwnerLock;
 
 /**
- * Append one signed ledger row and dispatch CreditsModified. A debit is guarded: unless an
- * overdraft is allowed, it may not take the bucket below `credits.minimum_balance`, and the
- * owner row is locked first so racing debits serialise.
+ * Append one signed ledger row and dispatch CreditsModified. Every change takes the owner
+ * lock first and reads the bucket's balance under it, in one transaction with the write, so
+ * racing changes of one owner serialise on every isolation level: a debit is guarded — unless
+ * an overdraft is allowed, it may not take the bucket below `credits.minimum_balance` — and
+ * the event carries the exact balance this change produced.
  */
 final readonly class ModifyCreditsAction
 {
@@ -26,47 +28,40 @@ final readonly class ModifyCreditsAction
 
     public function execute(Model&Creditable $creditable, CreditChangeData $data): Credit
     {
+        $balance = 0;
+
         /** @var Credit $credit */
-        $credit = $creditable->getConnection()->transaction(function () use ($creditable, $data): Credit {
-            $this->guardAgainstOverdraft($creditable, $data);
+        $credit = $creditable->getConnection()->transaction(function () use ($creditable, $data, &$balance): Credit {
+            $this->lock->acquire($creditable);
+
+            $available = $this->balance->execute(
+                $creditable,
+                lockForUpdate: true,
+                bucket: $data->resolvedBucket(),
+            );
+
+            $this->guardAgainstOverdraft($creditable, $data, $available);
 
             /** @var Credit $credit */
             $credit = $creditable->credits()->create($data->toAttributes());
 
-            return $credit;
-        });
+            $balance = $available + $data->amount;
 
-        CreditsModified::dispatch(
-            $creditable,
-            $credit,
-            $this->balance->execute($creditable, bucket: $data->resolvedBucket()),
-        );
+            return $credit;
+        }, OwnerLock::ATTEMPTS);
+
+        CreditsModified::dispatch($creditable, $credit, $balance);
 
         return $credit;
     }
 
-    private function guardAgainstOverdraft(Model&Creditable $creditable, CreditChangeData $data): void
+    private function guardAgainstOverdraft(Model&Creditable $creditable, CreditChangeData $data, int $available): void
     {
-        if ($data->amount >= 0) {
+        if ($data->amount >= 0 || $data->allowOverdraft || (bool) config('credits.allow_overdraft', false)) {
             return;
         }
 
-        $allowOverdraft = $data->allowOverdraft || (bool) config('credits.allow_overdraft', false);
-
-        if ($allowOverdraft) {
-            return;
-        }
-
-        $this->lock->acquire($creditable);
-
-        $available = $this->balance->execute(
-            $creditable,
-            lockForUpdate: true,
-            bucket: $data->resolvedBucket(),
-        );
-        $minimum = (int) config('credits.minimum_balance', 0);
-
-        if ($available + $data->amount < $minimum) {
+        if ($available + $data->amount < (int) config('credits.minimum_balance', 0)) {
             throw new InsufficientCreditsException(
                 creditable: $creditable,
                 requested: $data->amount,

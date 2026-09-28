@@ -3,7 +3,9 @@
 declare(strict_types=1);
 
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use RoundlyConsulting\Credits\Tests\Fixtures\UuidUser;
 use RoundlyConsulting\Testing\Database\DriverMatrix;
 
 /**
@@ -40,6 +42,7 @@ $pgsqlOnly = fn (): bool => DriverMatrix::driver() !== 'pgsql';
 function runCreditsMigration(): void
 {
     Schema::dropIfExists('credits');
+    Schema::dropIfExists('credit_locks');
     $migration = require __DIR__.'/../../database/migrations/create_credits_table.php';
     $migration->up();
 }
@@ -66,7 +69,9 @@ it('renders the creditable morph as a distinct real column type', function (stri
     runCreditsMigration();
 
     expect(morphKtColumn('credits', 'creditable_id')['type'])->toBe($expected)
-        ->and(morphKtColumn('credits', 'creditable_type')['type'])->toBe('character varying(255)');
+        ->and(morphKtColumn('credits', 'creditable_type')['type'])->toBe('character varying(255)')
+        // The owner-lock table keys the same owner, so it follows the same axis.
+        ->and(morphKtColumn('credit_locks', 'creditable_id')['type'])->toBe($expected);
 })->with([
     'bigint' => ['bigint', 'bigint'],
     'uuid' => ['uuid', 'uuid'],
@@ -101,4 +106,34 @@ it('falls back to the bigint schema for an unrecognized outbound key type', func
     $expected = DriverMatrix::driver() === 'pgsql' ? 'bigint' : 'integer';
 
     expect(morphKtColumn('credits', 'creditable_id')['type'])->toBe($expected);
+});
+
+/**
+ * End to end for a uuid-keyed owner: the ledger and the owner-lock row both key it with
+ * `credits.key_type = uuid`. On Postgres a bigint `creditable_id` rejects the uuid outright
+ * (SQLSTATE 22P02), which is why the README tells uuid hosts to set the key.
+ */
+it('holds credits on a uuid-keyed owner when key_type is uuid', function (): void {
+    config()->set('credits.key_type', 'uuid');
+    config()->set('credits.primary_key_type', 'bigint');
+    runCreditsMigration();
+
+    Schema::dropIfExists('uuid_users');
+    Schema::create('uuid_users', function (Blueprint $t): void {
+        $t->uuid('id')->primary();
+        $t->string('name')->nullable();
+        $t->timestamps();
+    });
+
+    $owner = UuidUser::query()->create(['name' => 'Ada']);
+
+    $owner->modifyCredits(100);
+    $owner->modifyCredits(-30);
+    $owner->setCreditsTo(50);
+
+    expect($owner->creditsBalance())->toBe(50)
+        ->and($owner->credits()->count())->toBe(3)
+        ->and(DB::table('credit_locks')->where('creditable_id', $owner->id)->value('version'))->toBe(4);
+
+    Schema::dropIfExists('uuid_users');
 });

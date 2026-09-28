@@ -51,7 +51,9 @@ composer require roundly-consulting/credits-for-laravel
 
 Publish and run the migration. The package does **not** auto-load it — publishing copies the
 `credits` migration into your `database/migrations`, where you own it, so a bare
-`php artisan migrate` before publishing creates nothing:
+`php artisan migrate` before publishing creates nothing. It creates two tables: `credits`, the
+ledger, and `credit_locks`, one small row per owner that serialises concurrent changes (see
+[Concurrency](#concurrency)):
 
 ```bash
 php artisan vendor:publish --tag="credits-migrations"
@@ -328,8 +330,9 @@ Allow a negative balance for a single call with `allowOverdraft`, or globally vi
 $user->modifyCredits(-1000, 'manual debit', allowOverdraft: true);
 ```
 
-The read-then-write is wrapped in a database transaction with a row-level lock
-(`lockForUpdate`), so concurrent deductions cannot both breach the floor.
+The read-then-write runs in one database transaction that serialises on the owner (see
+[Concurrency](#concurrency)), so concurrent deductions cannot both breach the floor — on any
+isolation level.
 
 ### Read the balance
 
@@ -351,9 +354,10 @@ $user->hasCredits(100, now()->subWeek());
 ### Set an exact balance
 
 `setCreditsTo()` computes the delta from the current balance and records a single adjusting
-row (it does nothing if the balance already matches). It locks the owner row before reading
-the balance, in one transaction with the write, so two racing calls serialise: the second
-computes its delta from the balance the first left behind.
+row (it does nothing if the balance already matches). It takes the owner lock and reads the
+balance under a row lock, in one transaction with the write, so two racing calls serialise
+(see [Concurrency](#concurrency)): the second computes its delta from the balance the first
+left behind.
 
 ```php
 $user->setCreditsTo(500, 'manual adjustment');
@@ -566,7 +570,9 @@ Credit::query()->buckets(['promotional', 'purchased'])->get(); // rows in any li
 
 A `RoundlyConsulting\Credits\Events\CreditsModified` event is dispatched after every recorded
 change (no event fires when `setCreditsTo()` is a no-op). It carries the `creditable`, the new
-`Credit` row, and the resulting `balance`.
+`Credit` row, and the resulting `balance` of the row's bucket — the balance this change
+produced, read under the owner lock inside the change's transaction, so a racing change never
+leaks into it.
 
 ```php
 use Illuminate\Support\Facades\Event;
@@ -611,15 +617,42 @@ failing the run.
 
 ### Concurrency
 
-The balance is never a stored column — it is the sum of an append-only ledger. A deduction
-runs inside a transaction that first locks the owner's own row (`lockForUpdate()` on your
-creditable model), then reads the ledger under `lockForUpdate()` before the overdraft guard
-decides, so two racing debits of one owner serialise and the second cannot overdraw — also on
-Postgres, where a locked ledger read that had to wait would otherwise decide against the
-balance from before the racing debit, and also in an empty bucket with a negative
-`minimum_balance`. The owner row is held only for that short transaction. Because every
-change is written as a new delta row (never an absolute balance), a change that lands between
-the balance read and the write is folded in, never lost.
+The balance is never a stored column — it is the sum of an append-only ledger. Every change
+(`modify`, `add`, `deduct`, `setTo`, and their Money forms) runs in one transaction that first
+takes the owner's lock — an `UPDATE` of the owner's row in `credit_locks` — then reads the
+bucket's ledger rows under `lockForUpdate()`, decides (the overdraft guard for a debit, the
+delta for `setCreditsTo()`), and appends the new row. Racing changes of one owner therefore
+serialise on every isolation level:
+
+- **READ COMMITTED** (the Postgres default): the second change waits for the first, then reads
+  the balance the first left behind — also in an empty bucket with a negative
+  `minimum_balance`.
+- **MySQL / MariaDB REPEATABLE READ** (their default): the lock and the ledger read are
+  current reads, so they see the first change's committed row too.
+- **Postgres REPEATABLE READ / SERIALIZABLE**: the second change's snapshot predates its wait,
+  so rather than decide on stale data it fails with a serialisation failure
+  (SQLSTATE 40001), and the package retries its transaction — up to 5 attempts — with a fresh
+  snapshot.
+
+Inside **your own** `DB::transaction()`, the snapshot belongs to your transaction, so the
+package cannot retry for you: on Postgres REPEATABLE READ / SERIALIZABLE a racing change
+surfaces as `Illuminate\Database\DeadlockException` (SQLSTATE 40001) and nothing is written.
+Retry the whole transaction — `DB::transaction($callback, attempts: 3)` does not, because the
+nested exception no longer carries the SQLSTATE Laravel's retry checks for:
+
+```php
+use Illuminate\Database\DeadlockException;
+use Illuminate\Support\Facades\DB;
+
+retry(3, fn () => DB::transaction(function () use ($user): void {
+    // … your own reads and writes …
+    $user->modifyCredits(-30, 'purchase');
+}), when: fn (Throwable $e): bool => $e instanceof DeadlockException);
+```
+
+The lock is held only for that short transaction. Because every change is written as a new
+delta row (never an absolute balance), a change is never lost, and `credit_locks` holds a
+version counter only — the ledger stays the single source of truth.
 
 ### Inspecting the configuration
 

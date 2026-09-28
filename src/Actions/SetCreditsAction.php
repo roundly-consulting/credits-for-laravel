@@ -22,9 +22,11 @@ final readonly class SetCreditsAction
     ) {}
 
     /**
-     * Returns null when no change is needed. The owner row is locked before the balance is
-     * read, inside one transaction with the write, so two racing calls serialise: the second
-     * computes its delta from the balance the first left behind.
+     * Returns null when no change is needed. The owner lock is taken before the balance is
+     * read — under a row lock, so MySQL's REPEATABLE READ answers it from the latest commit
+     * rather than the snapshot — inside one transaction with the write, so two racing calls
+     * serialise on every isolation level: the second computes its delta from the balance the
+     * first left behind.
      *
      * @param  array<string, mixed>|null  $meta
      */
@@ -40,7 +42,7 @@ final readonly class SetCreditsAction
         $credit = $creditable->getConnection()->transaction(function () use ($creditable, $amount, $description, $meta, $allowOverdraft, $bucket): ?Credit {
             $this->lock->acquire($creditable);
 
-            $delta = $amount - $this->balance->execute($creditable, bucket: $bucket);
+            $delta = $amount - $this->balance->execute($creditable, lockForUpdate: true, bucket: $bucket);
 
             if ($delta === 0) {
                 return null;
@@ -53,7 +55,7 @@ final readonly class SetCreditsAction
                 allowOverdraft: $allowOverdraft,
                 bucket: $bucket,
             ));
-        });
+        }, OwnerLock::ATTEMPTS);
 
         return $credit;
     }

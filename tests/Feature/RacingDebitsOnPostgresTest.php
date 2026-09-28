@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Database\DeadlockException;
 use Illuminate\Support\Facades\DB;
 use RoundlyConsulting\Credits\Exceptions\InsufficientCreditsException;
 use RoundlyConsulting\Credits\Tests\Fixtures\User;
@@ -31,7 +32,7 @@ function raceDebit(User $user, int $amount, string $resultFile): int
  *
  * @param  Closure(User): mixed  $operation
  */
-function raceOnSecondSession(User $user, Closure $operation, string $done, string $resultFile): int
+function raceOnSecondSession(User $user, Closure $operation, string $done, string $resultFile, ?string $isolation = null): int
 {
     $pid = pcntl_fork();
 
@@ -44,7 +45,10 @@ function raceOnSecondSession(User $user, Closure $operation, string $done, strin
     $outcome = 'error';
 
     try {
-        config()->set('database.connections.racer', DriverMatrix::connectionConfig('pgsql'));
+        config()->set('database.connections.racer', array_filter(
+            [...DriverMatrix::connectionConfig('pgsql'), 'isolation_level' => $isolation],
+            static fn (mixed $value): bool => $value !== null,
+        ));
         DB::setDefaultConnection('racer');
 
         $racer = User::on('racer')->findOrFail($user->getKey());
@@ -176,4 +180,147 @@ it('serialises two racing setTo calls so the second sees the first', function ()
     expect($outcome)->toBe('set')
         ->and($user->creditsBalance())->toBe(500)
         ->and($user->credits()->count())->toBe(2);
+})->skip(fn (): bool => DriverMatrix::driver() !== 'pgsql', 'needs a real engine (and pcntl + posix for the second process)');
+
+/**
+ * REPEATABLE READ and SERIALIZABLE (a host's `isolation_level`) take one snapshot for
+ * the whole transaction, at its first statement — before any lock wait. A waiter that only
+ * *locked* rows the first writer never updated reads that old snapshot after the wait and
+ * misses the first writer's ledger row: two debits of 60 on 100 both passed the guard
+ * (final -20), and two setTo(500) on 100 both wrote +400 (final 900). The guard must end in
+ * a serialisation failure the transaction retries, never in a decision on stale data.
+ */
+function underIsolation(string $level = 'repeatable read'): void
+{
+    DB::statement("set session characteristics as transaction isolation level {$level}");
+}
+
+it('refuses a racing debit under a snapshot isolation level instead of overdrawing', function (string $level): void {
+    underIsolation($level);
+
+    $user = User::query()->create(['name' => 'Ada']);
+    $user->modifyCredits(100);
+
+    $resultFile = (string) tempnam(sys_get_temp_dir(), 'credits-race-');
+    $pid = 0;
+
+    DB::transaction(function () use ($user, $resultFile, $level, &$pid): void {
+        $user->modifyCredits(-60);
+
+        $pid = raceOnSecondSession($user, fn (User $racer): mixed => $racer->modifyCredits(-60), 'debited', $resultFile, $level);
+
+        waitForTheRacer($resultFile);
+    });
+
+    pcntl_waitpid($pid, $status);
+    $outcome = (string) file_get_contents($resultFile);
+    @unlink($resultFile);
+
+    expect($outcome)->toBe('refused')
+        ->and($user->creditsBalance())->toBe(40)
+        ->and($user->credits()->count())->toBe(2);
+})->with(['repeatable read', 'serializable'])->skip(fn (): bool => DriverMatrix::driver() !== 'pgsql', 'needs a real engine (and pcntl + posix for the second process)');
+
+it('serialises two racing setTo calls under a snapshot isolation level', function (string $level): void {
+    underIsolation($level);
+
+    $user = User::query()->create(['name' => 'Ada']);
+    $user->modifyCredits(100);
+
+    $resultFile = (string) tempnam(sys_get_temp_dir(), 'credits-race-');
+    $pid = 0;
+
+    DB::transaction(function () use ($user, $resultFile, $level, &$pid): void {
+        $user->setCreditsTo(500);
+
+        $pid = raceOnSecondSession($user, fn (User $racer): mixed => $racer->setCreditsTo(500), 'set', $resultFile, $level);
+
+        waitForTheRacer($resultFile);
+    });
+
+    pcntl_waitpid($pid, $status);
+    $outcome = (string) file_get_contents($resultFile);
+    @unlink($resultFile);
+
+    expect($outcome)->toBe('set')
+        ->and($user->creditsBalance())->toBe(500)
+        ->and($user->credits()->count())->toBe(2);
+})->with(['repeatable read', 'serializable'])->skip(fn (): bool => DriverMatrix::driver() !== 'pgsql', 'needs a real engine (and pcntl + posix for the second process)');
+
+/**
+ * Inside a host transaction that already read something, the snapshot predates the lock
+ * wait no matter what credits does — so credits cannot retry on the host's behalf. The
+ * racing call must fail loudly (a serialisation failure, which Laravel rethrows out of the
+ * nested transaction as a DeadlockException) for the host to retry — never apply a second +400.
+ */
+it('fails a stale setTo inside a host transaction under repeatable read, so the host retries it', function (bool $hostRetries, string $expected): void {
+    underIsolation();
+
+    $user = User::query()->create(['name' => 'Ada']);
+    $user->modifyCredits(100);
+
+    $resultFile = (string) tempnam(sys_get_temp_dir(), 'credits-race-');
+    $pid = 0;
+
+    DB::transaction(function () use ($user, $resultFile, $hostRetries, &$pid): void {
+        $user->setCreditsTo(500);
+
+        $pid = raceOnSecondSession(
+            $user,
+            function (User $racer) use ($hostRetries): mixed {
+                $hostTransaction = fn (): mixed => DB::transaction(function () use ($racer): mixed {
+                    // The host's own earlier read: this is where the snapshot is taken.
+                    User::query()->count();
+
+                    return $racer->setCreditsTo(500);
+                });
+
+                return $hostRetries
+                    ? retry(3, $hostTransaction, 0, fn (Throwable $e): bool => $e instanceof DeadlockException)
+                    : $hostTransaction();
+            },
+            'set',
+            $resultFile,
+            'repeatable read',
+        );
+
+        waitForTheRacer($resultFile);
+    });
+
+    pcntl_waitpid($pid, $status);
+    $outcome = (string) file_get_contents($resultFile);
+    @unlink($resultFile);
+
+    expect($outcome)->toStartWith($expected)
+        ->and($user->creditsBalance())->toBe(500)
+        ->and($user->credits()->count())->toBe(2);
+})->with([
+    'a host that retries' => [true, 'set'],
+    'a host that does not' => [false, 'error: SQLSTATE[40001]'],
+])->skip(fn (): bool => DriverMatrix::driver() !== 'pgsql', 'needs a real engine (and pcntl + posix for the second process)');
+
+it('serialises two first-ever debits of an owner under repeatable read', function (): void {
+    underIsolation();
+    config()->set('credits.minimum_balance', -100);
+
+    $user = User::query()->create(['name' => 'Ada']);
+
+    $resultFile = (string) tempnam(sys_get_temp_dir(), 'credits-race-');
+    $pid = 0;
+
+    DB::transaction(function () use ($user, $resultFile, &$pid): void {
+        // No lock row and no ledger row exist yet: both are created by this debit.
+        $user->modifyCredits(-60);
+
+        $pid = raceOnSecondSession($user, fn (User $racer): mixed => $racer->modifyCredits(-60), 'debited', $resultFile, 'repeatable read');
+
+        waitForTheRacer($resultFile);
+    });
+
+    pcntl_waitpid($pid, $status);
+    $outcome = (string) file_get_contents($resultFile);
+    @unlink($resultFile);
+
+    expect($outcome)->toBe('refused')
+        ->and($user->creditsBalance())->toBe(-60);
 })->skip(fn (): bool => DriverMatrix::driver() !== 'pgsql', 'needs a real engine (and pcntl + posix for the second process)');

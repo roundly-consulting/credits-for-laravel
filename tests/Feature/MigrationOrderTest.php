@@ -8,8 +8,9 @@ use RoundlyConsulting\Credits\Tests\Fixtures\User;
 use RoundlyConsulting\Testing\Database\DriverMatrix;
 
 /**
- * Credits ships exactly one CREATE and zero foreign keys — the ledger's owner is a
- * polymorphic `morphs('creditable')`, which is deliberately unconstrained because a host's
+ * Credits ships exactly one migration file (creating the `credits` ledger and its
+ * `credit_locks` owner-lock table) and zero foreign keys — both key their owner through a
+ * polymorphic `creditable` morph, which is deliberately unconstrained because a host's
  * creditable entity can live in any table.
  *
  * That shape changes what is worth pinning here, and it is worth being explicit about why:

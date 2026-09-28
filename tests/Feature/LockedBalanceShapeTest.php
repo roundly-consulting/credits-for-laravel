@@ -25,7 +25,8 @@ use RoundlyConsulting\Testing\Fixtures\LockRecordingGrammar;
  *  1. the locked read is **not** an aggregate — pinned here on SQLite through the
  *     recording grammar, which is the only way to see a lock this driver erases;
  *  2. the lock is still real — same statement, transaction depth 1 (the datum that
- *     condemned `LockedUpdate`: a lock one level too deep is a silent non-lock).
+ *     condemned `LockedUpdate`: a lock one level too deep is a silent non-lock), taken
+ *     after the owner-lock bump that serialises the owner.
  *
  * The behavioural other half — that the guard actually rejects an overdraft on a real
  * engine — is BalanceConcurrencyTest, which runs on whatever driver the leg configured.
@@ -40,7 +41,7 @@ beforeEach(function (): void {
  * assertion — it rejects the aggregate form outright, which is what BalanceConcurrencyTest
  * observes.
  */
-it('locks the owner, then the ledger rows without an aggregate the engine would reject', function (): void {
+it('bumps the owner lock, then locks the ledger rows without an aggregate the engine would reject', function (): void {
     $connection = DB::connection();
     $connection->setQueryGrammar(new LockRecordingGrammar($connection));
     LockRecorder::listenForMarkers();
@@ -49,22 +50,32 @@ it('locks the owner, then the ledger rows without an aggregate the engine would 
     $user->modifyCredits(100);
 
     LockRecorder::flush();
+    DB::enableQueryLog();
 
     $user->modifyCredits(-40);
 
     $locks = LockRecorder::recorded();
+    $statements = array_map(static fn (array $query): string => strtolower((string) $query['query']), DB::getQueryLog());
+    DB::disableQueryLog();
 
-    // The guard takes two locks, both real FOR UPDATEs, in a fixed order: the owner's row
-    // first (it serialises racing debits — see RacingDebitsOnPostgresTest), then the ledger.
-    expect($locks)->toHaveCount(2)
-        ->and(array_column($locks, 'marker'))->each->toBe('lock-for-update')
-        ->and(strtolower($locks[0]['sql']))->toContain('from "users"')
-        ->and(strtolower($locks[1]['sql']))->toContain('from "credits"')
+    $bump = array_key_first(array_filter($statements, static fn (string $sql): bool => str_starts_with($sql, 'update "credit_locks"')));
+    $read = array_key_first(array_filter($statements, static fn (string $sql): bool => str_contains($sql, 'from "credits"')));
+
+    // The owner is serialised by an UPDATE of its lock row — an update, not a mere row lock,
+    // so a snapshot isolation level fails the racing transaction instead of letting it
+    // decide on stale data (see RacingDebitsOnPostgresTest) — and it comes first.
+    expect($bump)->not->toBeNull()
+        ->and($read)->not->toBeNull()
+        ->and($bump)->toBeLessThan($read)
+        // Then exactly one real FOR UPDATE: the ledger read.
+        ->and($locks)->toHaveCount(1)
+        ->and($locks[0]['marker'])->toBe('lock-for-update')
+        ->and(strtolower($locks[0]['sql']))->toContain('from "credits"')
         // The bug, pinned: `sum(...) ... for update` is invalid SQL on Postgres and MySQL
         // alike. The locked read must select the rows, not aggregate them.
-        ->and(strtolower($locks[1]['sql']))->not->toContain('sum(')
-        ->and(strtolower($locks[1]['sql']))->toContain('"amount"')
-        // And both must be locks that serialise: taken inside the guard's transaction, so
-        // a racing debit blocks on them rather than reading a stale sum.
-        ->and(array_column($locks, 'transactionDepth'))->each->toBe(1);
+        ->and(strtolower($locks[0]['sql']))->not->toContain('sum(')
+        ->and(strtolower($locks[0]['sql']))->toContain('"amount"')
+        // And it must be a lock that serialises: taken inside the guard's transaction, so a
+        // racing debit blocks on it rather than reading a stale sum.
+        ->and($locks[0]['transactionDepth'])->toBe(1);
 })->skip(fn (): bool => DriverMatrix::driver() !== 'sqlite', 'recording grammar is sqlite-only');

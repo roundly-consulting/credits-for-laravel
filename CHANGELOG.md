@@ -56,6 +56,16 @@ Initial public release.
 
 - `setCreditsTo()` read the balance without a lock and outside a transaction. Two racing calls
   could each apply the full delta, so two concurrent "set to 500" calls on a balance of 100
-  ended at 900. It now locks the owner row first, inside one transaction with the write.
+  ended at 900. It now takes the owner lock and reads the balance under a row lock, inside one
+  transaction with the write.
+- Under REPEATABLE READ or SERIALIZABLE, racing debits could both pass the overdraft guard
+  (two -60 on 100 ended at -20) and racing `setCreditsTo()` calls could both apply their
+  delta. The owner row was only locked, so the waiter read the balance from the snapshot it
+  took before the wait. Every change now bumps the owner's row in a new `credit_locks` table
+  (created by the same migration) and reads the ledger under a row lock, so racing changes
+  serialise on every isolation level; a Postgres snapshot conflict is retried.
+- `CreditsModified::$balance` was summed after the commit, without the lock, so it could
+  include another writer's rows. It is now the balance the change produced, read under the
+  owner lock inside the transaction.
 - The README called the `Creditable` interface optional. Every API takes a `Model&Creditable`,
   so it is required.
