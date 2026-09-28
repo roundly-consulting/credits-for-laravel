@@ -153,9 +153,9 @@ column silently, so a green SQLite suite proves nothing here.
 
 ### Make a model creditable
 
-Add the `HasCredits` trait to any Eloquent model. Implementing the `Creditable` interface is
-optional but recommended so the contract is explicit (the `credits:modify` command depends on
-it).
+Add the `HasCredits` trait to any Eloquent model and implement the `Creditable` interface. The
+interface is required: every API takes the owner as a `Model&Creditable`, so a model with only
+the trait fails with a `TypeError` on first use (and static analysis flags it before that).
 
 ```php
 use Illuminate\Database\Eloquent\Model;
@@ -167,6 +167,132 @@ final class User extends Model implements Creditable
     use HasCredits;
 }
 ```
+
+### The `Credits` facade
+
+`Credits::for($owner)` is the entry point for everything the package does with one owner's
+credits. The facade is also auto-registered as the global alias `Credits`. It returns an immutable scope: `bucket()` and `allowOverdraft()` each return a new
+scope, so you can keep and reuse one.
+
+```php
+use RoundlyConsulting\Credits\Facades\Credits;
+use RoundlyConsulting\Money\Money;
+
+Credits::for($user)->add(100, 'Welcome');                       // Credit row
+Credits::for($user)->deduct(30, 'Order #42', ['order_id' => 42]); // InsufficientCreditsException below the floor
+Credits::for($user)->modify(-5);                                 // a signed change
+Credits::for($user)->allowOverdraft()->deduct(500);              // may go below the floor
+Credits::for($user)->setTo(0, 'Reset');                          // one delta row; null when already there
+
+Credits::for($user)->balance();                                  // int — the default bucket
+Credits::for($user)->balance(now()->subWeek());                  // as of a point in time
+Credits::for($user)->has(50);                                    // bool
+Credits::for($user)->total();                                    // int — every bucket
+
+$points = Credits::for($user)->bucket('points');
+$points->add(100, 'Welcome');
+$points->balance();                                              // 100
+
+Credits::for($user)->buckets(['promotional', 'purchased'])->balance(); // summed, read-only
+Credits::for($user)->buckets(['promotional', 'purchased'])->has(50);
+
+// A currency-denominated bucket (see below) reads and writes Money:
+$store = Credits::for($user)->bucket('store_credit');
+$store->addMoney(Money::ofMajor('25.00', 'EUR'), 'Gift card');
+$store->deductMoney(Money::ofMinor(1050, 'EUR'), 'Order #42');
+$store->money();                                                 // Money EUR 14.50
+$store->currency();                                              // Currency EUR
+$store->format();                                                // "14.50"
+$store->formatMoney('en');                                       // "€14.50"
+
+// Owner-free helpers:
+Credits::format(1250, scale: 2);                                 // "1250.00" at credits.scale = 0
+Credits::currency('store_credit');                               // ?Currency
+```
+
+`add()` and `deduct()` take a non-negative amount and throw an `InvalidArgumentException`
+otherwise. Use `modify()` for a signed change. The same holds for `addMoney()` /
+`deductMoney()` / `modifyMoney()`. `buckets([...])` only reads, because every write names
+exactly one bucket.
+
+The model methods below (`$user->modifyCredits()`, `$user->creditsBalance()`, …) are shorthand
+for the same calls: each one goes through `Credits::for($user)`.
+
+### Without the facade
+
+The facade is a thin layer over `CreditsManager`. Inject the manager to get the same API without
+the facade:
+
+```php
+use RoundlyConsulting\Credits\CreditsManager;
+
+final class RewardSignup
+{
+    public function __construct(private CreditsManager $credits) {}
+
+    public function __invoke(User $user): void
+    {
+        $this->credits->for($user)->bucket('points')->add(100, 'Welcome');
+    }
+}
+```
+
+The manager also has flat verbs that every scope ends in. They are handy for jobs that already
+hold a `CreditChangeData`:
+
+```php
+use RoundlyConsulting\Credits\DataTransferObjects\CreditChangeData;
+
+$credits->modify($user, new CreditChangeData(amount: -30, description: 'purchase', bucket: 'points'));
+$credits->setTo($user, 500, 'manual adjustment');
+$credits->balance($user, bucket: 'points');
+$credits->total($user, ['promotional', 'purchased']);           // null = every bucket
+```
+
+Each operation is also a single-purpose action with one `execute()` method, for when you want
+to resolve and run it yourself:
+
+```php
+use RoundlyConsulting\Credits\Actions\{FormatCreditsAction, GetCreditsBalanceAction,
+    GetCreditsTotalAction, ModifyCreditsAction, ResolveBucketCurrencyAction, SetCreditsAction};
+
+app(ModifyCreditsAction::class)->execute($user, new CreditChangeData(amount: -30, description: 'purchase'));
+app(SetCreditsAction::class)->execute($user, 500, 'manual adjustment');
+app(GetCreditsBalanceAction::class)->execute($user, bucket: 'points');
+app(GetCreditsTotalAction::class)->execute($user, ['promotional', 'purchased']);
+app(FormatCreditsAction::class)->execute(123450, scale: 2);
+app(ResolveBucketCurrencyAction::class)->execute('store_credit');
+```
+
+To change the behaviour without forking, bind your own implementation of an action in the
+container. The manager resolves each action every time it is called.
+
+### Testing with the fake
+
+`Credits::fake()` swaps the manager with a recorder that writes no ledger row and fires no event.
+The swap covers the facade, every injected `CreditsManager`, the `HasCredits` model methods and
+`credits:modify`:
+
+```php
+use RoundlyConsulting\Credits\Facades\Credits;
+
+$fake = Credits::fake();
+
+// ... run the code under test ...
+
+$fake->assertAdded($user, 100, bucket: 'points');   // amount and bucket optional
+$fake->assertDeducted($user, 30);                   // the positive amount, as passed to deduct()
+$fake->assertSet($user, 0);                         // the requested target
+$fake->assertNothingAdded();
+$fake->assertNothingDeducted();
+$fake->assertNothingSet();
+$fake->assertNothingModified();                     // no add, deduct or set at all
+```
+
+The fake keeps an in-memory ledger. Balances add it to the owner's real rows, so a grant made on
+the fake can be spent on the fake. The overdraft guard still applies: a deduction the real
+manager would refuse throws `InsufficientCreditsException` and is not recorded. `setTo()` is
+recorded even when the balance already matches.
 
 ### Grant and deduct credits
 
@@ -225,7 +351,9 @@ $user->hasCredits(100, now()->subWeek());
 ### Set an exact balance
 
 `setCreditsTo()` computes the delta from the current balance and records a single adjusting
-row (it does nothing if the balance already matches).
+row (it does nothing if the balance already matches). It locks the owner row before reading
+the balance, in one transaction with the write, so two racing calls serialise: the second
+computes its delta from the balance the first left behind.
 
 ```php
 $user->setCreditsTo(500, 'manual adjustment');
@@ -268,7 +396,8 @@ $user->creditsBalance(bucket: 'promotional'); // 100
 
 Existing single-pool usage is unchanged: every call without a bucket continues to operate on
 one pool (the `default` bucket). `setCreditsTo()` and `hasCredits()` accept the same `bucket`
-argument, and the `credits:modify` command exposes a `--bucket=` option.
+argument, the `credits:modify` command exposes a `--bucket=` option, and the facade form is
+`Credits::for($user)->bucket('promotional')`.
 
 #### Totals across buckets
 
@@ -341,9 +470,9 @@ $user->displayCredits($user->totalCreditsBalance());                       // fo
 $user->displayCredits($user->creditsBalanceForBuckets(['promotional', 'purchased']));
 ```
 
-The reusable formatting core is `RoundlyConsulting\Credits\Actions\FormatCreditsAction`
+The reusable formatting core is `Credits::format()` — `RoundlyConsulting\Credits\Actions\FormatCreditsAction`
 (`execute(int $amount, ?int $scale = null, ?\RoundingMode $rounding = null, ?int $storedScale = null): string`),
-which the trait methods delegate to. It is a thin layer over money-for-laravel's
+which the trait methods and `Credits::for($user)->format()` delegate to. It needs no model. It is a thin layer over money-for-laravel's
 `MinorUnits::rescale()` / `MinorUnits::toDecimal()`; `$storedScale` defaults to
 `credits.scale` (a denominated bucket passes its currency exponent).
 
@@ -448,34 +577,10 @@ Event::listen(function (CreditsModified $event): void {
 });
 ```
 
-### Actions (advanced usage)
-
-The trait delegates to single-purpose actions you can resolve and call directly (for example
-from a job or a service). Each takes a DTO / model and has a single `execute()` method:
-
-```php
-use RoundlyConsulting\Credits\Actions\ModifyCreditsAction;
-use RoundlyConsulting\Credits\Actions\SetCreditsAction;
-use RoundlyConsulting\Credits\Actions\GetCreditsBalanceAction;
-use RoundlyConsulting\Credits\DataTransferObjects\CreditChangeData;
-
-app(ModifyCreditsAction::class)->execute($user, new CreditChangeData(
-    amount: -30,
-    description: 'purchase',
-    meta: ['order_id' => 42],
-    allowOverdraft: false,
-));
-
-app(SetCreditsAction::class)->execute($user, 500, 'manual adjustment');
-app(GetCreditsBalanceAction::class)->execute($user);
-```
-
-Bind your own implementation in the container to customise behaviour without forking.
-
 ### Console command
 
 `credits:modify` applies a credit change in bulk to every entity resolved by the
-`credits.modifiable` config. Register one or more resolver closures:
+`credits.modifiable` config, through `Credits::for($entity)` (so `Credits::fake()` records it). Register one or more resolver closures:
 
 ```php
 // config/credits.php

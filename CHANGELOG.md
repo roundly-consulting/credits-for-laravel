@@ -26,5 +26,36 @@ Initial public release.
   as loyalty points.
 - Ledger query scopes (`grants()`, `deductions()`, `upTo()`, `forCreditable()`, `bucket()`) and a
   `CreditsModified` event after every change.
-- Single-purpose actions (`ModifyCreditsAction`, …) for jobs and services, and the
-  `credits:modify` command for bulk grants such as a monthly bonus.
+- A `Credits` facade (global alias `Credits`) over an injectable `CreditsManager`.
+  `Credits::for($owner)` returns an immutable scope with `bucket()`, `allowOverdraft()`,
+  `add()` / `deduct()` / `modify()` / `setTo()`, `balance()` / `has()` / `total()`,
+  `buckets([...])->balance()` / `has()`, and the Money forms `money()` / `addMoney()` /
+  `deductMoney()` / `modifyMoney()` / `format()` / `formatMoney()`. `Credits::format()` and
+  `Credits::currency()` need no model. The flat verbs `modify()` / `setTo()` / `balance()` /
+  `total()` take the owner as their first argument.
+- `Credits::fake()` returns `CreditsFake`, a `CreditsManager` subtype. It writes no rows and
+  fires no events, keeps an in-memory balance and still enforces the overdraft guard. It
+  records changes made through the facade, the `HasCredits` trait and `credits:modify`, and
+  asserts `assertAdded()`, `assertDeducted()`, `assertSet()`, `assertNothingAdded()`,
+  `assertNothingDeducted()`, `assertNothingSet()` and `assertNothingModified()`.
+- Single-purpose actions with one `execute()` each: `ModifyCreditsAction`,
+  `SetCreditsAction`, `GetCreditsBalanceAction`, `GetCreditsTotalAction`,
+  `FormatCreditsAction` and `ResolveBucketCurrencyAction`. The `credits:modify` command
+  handles bulk grants such as a monthly bonus.
+
+### Changed
+
+- Every `HasCredits` method delegates to `CreditsManager` (through `Credits::for($this)`), and
+  so does `credits:modify`.
+- Multi-bucket and all-bucket sums moved from `GetCreditsBalanceAction::forBuckets()` /
+  `forAllBuckets()` to `GetCreditsTotalAction` (`Credits::total()`).
+- `ResolveBucketCurrencyAction::denominated()` is removed. The scope's Money methods throw
+  `BucketNotDenominatedException` instead.
+
+### Fixed
+
+- `setCreditsTo()` read the balance without a lock and outside a transaction. Two racing calls
+  could each apply the full delta, so two concurrent "set to 500" calls on a balance of 100
+  ended at 900. It now locks the owner row first, inside one transaction with the write.
+- The README called the `Creditable` interface optional. Every API takes a `Model&Creditable`,
+  so it is required.
