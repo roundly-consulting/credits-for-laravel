@@ -8,6 +8,7 @@ use Closure;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Credits\CreditsManager;
+use RoundlyConsulting\Credits\Exceptions\InsufficientCreditsException;
 use RoundlyConsulting\Credits\Interfaces\Creditable;
 
 final class ModifyCreditsCommand extends Command
@@ -16,13 +17,15 @@ final class ModifyCreditsCommand extends Command
         {--amount=0 : The credit amount to apply (may be negative)}
         {--description= : An optional human-readable description}
         {--bucket= : The named bucket to apply the change to (defaults to the configured bucket)}
-        {--allow-overdraft : Permit deductions that drive the balance below zero}';
+        {--allow-overdraft : Permit deductions that drive the balance below credits.minimum_balance}';
 
     protected $description = 'Modify credits on the entities resolved by the credits.modifiable config';
 
     /**
      * Each resolved entity is changed through `Credits::for($entity)`, so the same overdraft
-     * guard and event apply — and `Credits::fake()` records it.
+     * guard and event apply — and `Credits::fake()` records it. An entity the guard refuses
+     * is reported and skipped, never aborting the run half-applied; any refusal makes the
+     * command exit non-zero once every entity has been visited.
      */
     public function handle(CreditsManager $credits): int
     {
@@ -40,10 +43,11 @@ final class ModifyCreditsCommand extends Command
         $allowOverdraft = (bool) $this->option('allow-overdraft');
 
         $count = 0;
+        $refused = 0;
 
         $bucket = is_string($bucket) && $bucket !== '' ? $bucket : null;
 
-        $modify = function (mixed $entity) use ($credits, $amount, $description, $bucket, $allowOverdraft, &$count): void {
+        $modify = function (mixed $entity) use ($credits, $amount, $description, $bucket, $allowOverdraft, &$count, &$refused): void {
             if (! $entity instanceof Model || ! $entity instanceof Creditable) {
                 $this->warn('Skipped a resolved entity that is not a Creditable model.');
 
@@ -52,11 +56,18 @@ final class ModifyCreditsCommand extends Command
 
             $scope = $credits->for($entity)->allowOverdraft($allowOverdraft);
 
-            ($bucket === null ? $scope : $scope->bucket($bucket))->modify(
-                $amount,
-                is_string($description) ? $description : null,
-                ['info' => 'Credits modified by credits:modify command.'],
-            );
+            try {
+                ($bucket === null ? $scope : $scope->bucket($bucket))->modify(
+                    $amount,
+                    is_string($description) ? $description : null,
+                    ['info' => 'Credits modified by credits:modify command.'],
+                );
+            } catch (InsufficientCreditsException $exception) {
+                $refused++;
+                $this->warn('Refused '.$entity::class.' #'.$entity->getKey().': '.$exception->getMessage());
+
+                return;
+            }
 
             $count++;
         };
@@ -69,6 +80,12 @@ final class ModifyCreditsCommand extends Command
         }
 
         $this->info("Modified credits on {$count} ".($count === 1 ? 'entity' : 'entities').'.');
+
+        if ($refused > 0) {
+            $this->error("Refused {$refused} ".($refused === 1 ? 'entity' : 'entities').' with insufficient credits.');
+
+            return self::FAILURE;
+        }
 
         return self::SUCCESS;
     }

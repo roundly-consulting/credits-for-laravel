@@ -67,6 +67,10 @@ Initial public release.
 - `allow_overdraft` was read with a loose `(bool)` cast, so `CREDITS_ALLOW_OVERDRAFT=off` (or
   `no`, `false`) turned overdraft **on**, and `=1` overdrew while `about` reported `BLOCKED`.
   The guard, the fake and `about` now read it as a boolean (`1`/`true`/`on`/`yes`).
+- `credits:modify` stopped at the first entity with insufficient credits: the entities before
+  it were charged, the rest were not, and no summary was printed. It now reports each refused
+  entity, finishes the run, and exits non-zero when any was refused. The `--allow-overdraft`
+  help now says "below `credits.minimum_balance`" rather than "below zero".
 - `CreditsModified::$balance` was summed after the commit, without the lock, so it could
   include another writer's rows. It is now the balance the change produced, read under the
   owner lock inside the transaction.

@@ -108,3 +108,45 @@ it('succeeds with no configured resolvers', function (): void {
 
     expect($exitCode)->toBe(0);
 });
+
+// Regression: one entity with insufficient credits threw out of the run — the entities before
+// it were charged, the ones after it were not, and no summary was printed, so a re-run charged
+// the first ones twice.
+it('refuses an entity with insufficient credits, finishes the run, and exits non-zero', function (): void {
+    $ada = User::query()->create(['name' => 'Ada']);
+    $bob = User::query()->create(['name' => 'Bob']);
+    $cyd = User::query()->create(['name' => 'Cyd']);
+    $ada->modifyCredits(100);
+    $cyd->modifyCredits(100);
+
+    config()->set('credits.modifiable', [
+        fn (Closure $modify) => User::query()->orderBy('id')->each(fn (User $user) => $modify($user)),
+    ]);
+
+    $exitCode = Artisan::call('credits:modify', ['--amount' => -10]);
+    $output = Artisan::output();
+
+    expect($exitCode)->toBe(1)
+        ->and($ada->creditsBalance())->toBe(90)
+        ->and($bob->creditsBalance())->toBe(0)
+        ->and($cyd->creditsBalance())->toBe(90)
+        ->and($output)->toContain('Refused '.User::class.' #'.$bob->id.': Insufficient credits')
+        ->and($output)->toContain('Modified credits on 2 entities.')
+        ->and($output)->toContain('Refused 1 entity with insufficient credits.');
+});
+
+it('reports every refused entity when a whole run is refused', function (): void {
+    $ada = User::query()->create(['name' => 'Ada']);
+    $bob = User::query()->create(['name' => 'Bob']);
+
+    config()->set('credits.modifiable', [
+        fn (Closure $modify) => [$modify($ada), $modify($bob)],
+    ]);
+
+    $exitCode = Artisan::call('credits:modify', ['--amount' => -1]);
+
+    expect($exitCode)->toBe(1)
+        ->and(Artisan::output())
+        ->toContain('Modified credits on 0 entities.')
+        ->toContain('Refused 2 entities with insufficient credits.');
+});

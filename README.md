@@ -610,10 +610,15 @@ php artisan credits:modify --amount=10 --description="monthly bonus"
 | `--amount` | `0` | The credit amount to apply (must be an integer; may be negative). A non-integer value fails with a non-zero exit code. |
 | `--description` | `null` | An optional human-readable description stored on each row. |
 | `--bucket` | configured default | The named bucket to apply the change to. Omit to use the configured `default_bucket`. |
-| `--allow-overdraft` | `false` | Permit deductions that drive the balance below zero. |
+| `--allow-overdraft` | `false` | Permit deductions that drive the balance below `minimum_balance` (which may be other than zero). |
 
 Resolved entities that are not `Creditable` models are skipped with a warning rather than
-failing the run.
+failing the run. An entity whose deduction the overdraft guard refuses is skipped too — the
+run carries on with the rest, printing `Refused App\Models\User #2: Insufficient credits: …`
+for each — and once every entity has been visited the command reports
+`Refused N entities with insufficient credits.` and exits non-zero. Each change is its own
+transaction, so the entities that were charged stay charged: re-run only for the refused ones
+(for example with a resolver that selects them), not the whole set.
 
 ### Concurrency
 
