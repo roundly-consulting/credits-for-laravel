@@ -74,5 +74,8 @@ Initial public release.
 - `CreditsModified::$balance` was summed after the commit, without the lock, so it could
   include another writer's rows. It is now the balance the change produced, read under the
   owner lock inside the transaction.
+- The README's configuration section left out `key_type` (`CREDITS_KEY_TYPE`), the setting
+  uuid- or ulid-keyed creditable models need, and its `about` list left out the two key-type
+  rows. Both are documented now, along with the migration being forward-only.
 - The README called the `Creditable` interface optional. Every API takes a `Model&Creditable`,
   so it is required.

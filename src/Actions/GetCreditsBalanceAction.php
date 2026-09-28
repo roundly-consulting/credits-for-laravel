@@ -13,7 +13,7 @@ use RoundlyConsulting\Credits\Support\CreditModel;
 
 /**
  * One bucket's balance — the configured default unless named — optionally as of a point in
- * time, and optionally read under a row lock (the overdraft guard's read). Sums across
+ * time, and optionally read under a row lock (the read every change decides on). Sums across
  * buckets are GetCreditsTotalAction.
  */
 final readonly class GetCreditsBalanceAction

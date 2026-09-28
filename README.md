@@ -60,6 +60,11 @@ php artisan vendor:publish --tag="credits-migrations"
 php artisan migrate
 ```
 
+The migration is forward-only: like every Roundly package migration it has no `down()`, so
+`php artisan migrate:rollback` does not drop the two tables (and the next `migrate` then fails
+on "table already exists"). The published copy is yours — to uninstall, drop `credits` and
+`credit_locks` in a migration of your own, or add a `down()` to your copy.
+
 Optionally publish the config file:
 
 ```bash
@@ -86,6 +91,8 @@ use RoundlyConsulting\Credits\Models\Credit;
 return [
 
     'model' => Credit::class,
+
+    'key_type' => env('CREDITS_KEY_TYPE', 'bigint'),
 
     'primary_key_type' => env('CREDITS_PRIMARY_KEY_TYPE', 'bigint'),
 
@@ -114,6 +121,7 @@ return [
 | Key | Type | Default | Env | Purpose |
 |---|---|---|---|---|
 | `model` | `class-string<RoundlyConsulting\Credits\Models\Credit>` | `Credit::class` | — | The Eloquent model used to store credit rows. Override with your own subclass to customise behaviour or the table. |
+| `key_type` | `string` | `'bigint'` | `CREDITS_KEY_TYPE` | The key type of **your creditable models** (the ones using `HasCredits`) — the `creditable_id` column: `bigint`, `uuid` or `ulid`; anything unrecognised falls back to `bigint`. Set it to `uuid`/`ulid` when those models use `HasUuids`/`HasUlids`. Fixed when the migration first runs. See [Key types](#key-types). |
 | `primary_key_type` | `string` | `'bigint'` | `CREDITS_PRIMARY_KEY_TYPE` | The primary-key strategy of the `credits` table: `bigint`, `uuid` or `ulid`. Fixed when the migration first runs. See [Key types](#key-types). |
 | `allow_overdraft` | `bool` | `false` | `CREDITS_ALLOW_OVERDRAFT` | When `false`, a deduction that would take the balance below `minimum_balance` is rejected with an `InsufficientCreditsException`. Set `true` to permit deductions below `minimum_balance` globally. The env value is read as a boolean: `1`, `true`, `on` and `yes` enable it; `0`, `false`, `off`, `no` and anything unrecognised leave it off. |
 | `minimum_balance` | `int` | `0` | — | The floor enforced when overdraft is disallowed. |
@@ -127,7 +135,27 @@ The package ships with sensible defaults and works with **zero** host configurat
 
 ### Key types
 
-`primary_key_type` sets the type of the `credits` table's own `id` column, and the model
+Credits has two independent key types, and both are read when the migration runs — choose
+them **before** you publish and migrate.
+
+**`key_type`** is the key type of the models that **hold** credits. It types the
+`creditable_id` column (of both `credits` and `credit_locks`), so it must match your
+creditable models' primary key: keep the default `bigint` for auto-incrementing ids, and set
+`uuid` or `ulid` when those models use `HasUuids` or `HasUlids`:
+
+```dotenv
+CREDITS_KEY_TYPE=uuid
+```
+
+Leave it at `bigint` with uuid-keyed users and PostgreSQL rejects the first change:
+
+```
+SQLSTATE[22P02]: invalid input syntax for type bigint: "01a0e9ca-cf2c-7..."
+```
+
+Every creditable model in the application must share that one key type.
+
+**`primary_key_type`** sets the type of the `credits` table's own `id` column, and the model
 follows it — `bigint` (auto-incrementing, the default), `uuid` or `ulid`. It is read when
 the migration runs, so choose it **before** you publish and migrate; changing it afterwards
 is a data migration, not a config change.
@@ -665,9 +693,11 @@ version counter only — the ledger stays the single source of truth.
 php artisan about --only=credits
 ```
 
-Reports the resolved model, the overdraft policy, the minimum balance, the default bucket, the
-scale, the display rounding mode (`INVALID` when `credits.rounding` names no mode), and how
-many `modifiable` resolvers are registered (a count — never what they resolve).
+Reports the resolved model, the primary key type (`primary_key_type`), the creditable key type
+(`key_type`), the overdraft policy (`ALLOWED` or `BLOCKED`, read from `allow_overdraft` the
+same way the guard reads it), the minimum balance, the default bucket, the scale, the display
+rounding mode (`INVALID` when `credits.rounding` names no mode), and how many `modifiable`
+resolvers are registered (a count — never what they resolve).
 
 ## Testing
 
