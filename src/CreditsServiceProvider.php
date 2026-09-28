@@ -12,6 +12,7 @@ use RoundlyConsulting\PackageToolkit\Concerns\RegistersBlueprintMacros;
 use RoundlyConsulting\PackageToolkit\Enums\KeyType;
 use RoundlyConsulting\PackageToolkit\Package;
 use RoundlyConsulting\PackageToolkit\PackageServiceProvider;
+use RoundlyConsulting\PackageToolkit\Support\Config;
 
 final class CreditsServiceProvider extends PackageServiceProvider
 {
@@ -36,7 +37,7 @@ final class CreditsServiceProvider extends PackageServiceProvider
                 // The outbound axis: the key type of the creditable morph column. A
                 // different axis from the credits table's own id — see the config.
                 'Creditable key type' => KeyType::fromConfig('credits.key_type')->value,
-                'Overdraft' => config('credits.allow_overdraft', false) === true ? 'ALLOWED' : 'BLOCKED',
+                'Overdraft' => Config::boolean('credits.allow_overdraft') ? 'ALLOWED' : 'BLOCKED',
                 'Minimum balance' => (string) (int) config('credits.minimum_balance', 0),
                 'Default bucket' => (string) config('credits.default_bucket', 'default'),
                 'Scale' => (string) (int) config('credits.scale', 0),

@@ -13,6 +13,7 @@ use RoundlyConsulting\Credits\DataTransferObjects\CreditChangeData;
 use RoundlyConsulting\Credits\Exceptions\InsufficientCreditsException;
 use RoundlyConsulting\Credits\Interfaces\Creditable;
 use RoundlyConsulting\Credits\Models\Credit;
+use RoundlyConsulting\PackageToolkit\Support\Config;
 
 /**
  * The recording double `Credits::fake()` installs. It writes no ledger row and dispatches no
@@ -158,7 +159,7 @@ final class CreditsFake extends CreditsManager
     {
         $bucket = $data->resolvedBucket();
 
-        if ($data->amount < 0 && ! $data->allowOverdraft && ! (bool) config('credits.allow_overdraft', false)) {
+        if ($data->amount < 0 && ! $data->allowOverdraft && ! Config::boolean('credits.allow_overdraft')) {
             $available = $this->balance($owner, $bucket);
 
             if ($available + $data->amount < (int) config('credits.minimum_balance', 0)) {

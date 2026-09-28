@@ -11,6 +11,7 @@ use RoundlyConsulting\Credits\Exceptions\InsufficientCreditsException;
 use RoundlyConsulting\Credits\Interfaces\Creditable;
 use RoundlyConsulting\Credits\Models\Credit;
 use RoundlyConsulting\Credits\Support\OwnerLock;
+use RoundlyConsulting\PackageToolkit\Support\Config;
 
 /**
  * Append one signed ledger row and dispatch CreditsModified. Every change takes the owner
@@ -57,7 +58,7 @@ final readonly class ModifyCreditsAction
 
     private function guardAgainstOverdraft(Model&Creditable $creditable, CreditChangeData $data, int $available): void
     {
-        if ($data->amount >= 0 || $data->allowOverdraft || (bool) config('credits.allow_overdraft', false)) {
+        if ($data->amount >= 0 || $data->allowOverdraft || Config::boolean('credits.allow_overdraft')) {
             return;
         }
 

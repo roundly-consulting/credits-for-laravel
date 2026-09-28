@@ -221,3 +221,19 @@ it('records the flat verbs', function (): void {
     $fake->assertAdded($this->user, 9);
     $fake->assertSet($this->user, 3);
 });
+
+it('reads allow_overdraft as an env boolean, like the real guard', function (): void {
+    $fake = Credits::fake();
+
+    config()->set('credits.allow_overdraft', 'off');
+
+    expect(fn (): Credit => Credits::for($this->user)->deduct(10))->toThrow(InsufficientCreditsException::class);
+    $fake->assertNothingDeducted();
+
+    config()->set('credits.allow_overdraft', '1');
+
+    Credits::for($this->user)->deduct(10);
+
+    expect(Credits::for($this->user)->balance())->toBe(-10);
+    $fake->assertDeducted($this->user, 10);
+});

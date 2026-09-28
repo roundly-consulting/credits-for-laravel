@@ -68,8 +68,10 @@ return [
     |
     | When false (the default), a deduction that would drive the balance below
     | the configured minimum is rejected with an InsufficientCreditsException.
-    | Set this to true to permit negative balances globally. Individual calls
-    | can always opt in via the `allowOverdraft` argument.
+    | Set this to true to permit deductions below the minimum globally. The env
+    | value is read as a boolean: "1", "true", "on" and "yes" enable it; "0",
+    | "false", "off", "no" and anything unrecognised leave it off. Individual
+    | calls can always opt in via the `allowOverdraft` argument.
     |
     */
 

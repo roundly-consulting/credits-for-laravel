@@ -64,6 +64,9 @@ Initial public release.
   took before the wait. Every change now bumps the owner's row in a new `credit_locks` table
   (created by the same migration) and reads the ledger under a row lock, so racing changes
   serialise on every isolation level; a Postgres snapshot conflict is retried.
+- `allow_overdraft` was read with a loose `(bool)` cast, so `CREDITS_ALLOW_OVERDRAFT=off` (or
+  `no`, `false`) turned overdraft **on**, and `=1` overdrew while `about` reported `BLOCKED`.
+  The guard, the fake and `about` now read it as a boolean (`1`/`true`/`on`/`yes`).
 - `CreditsModified::$balance` was summed after the commit, without the lock, so it could
   include another writer's rows. It is now the balance the change produced, read under the
   owner lock inside the transaction.

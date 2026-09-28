@@ -92,3 +92,16 @@ it('reports no modifiable resolvers by default in about', function (): void {
         ->expectsOutputToContain('NONE')
         ->assertExitCode(0);
 });
+
+it('reports the overdraft policy the guard applies, for env strings too', function (mixed $value, string $expected): void {
+    config()->set('credits.allow_overdraft', $value);
+
+    $this->artisan('about --only=credits')
+        ->expectsOutputToContain($expected)
+        ->assertExitCode(0);
+})->with([
+    '"1"' => ['1', 'ALLOWED'],
+    '"yes"' => ['yes', 'ALLOWED'],
+    '"off"' => ['off', 'BLOCKED'],
+    '"false"' => ['false', 'BLOCKED'],
+]);

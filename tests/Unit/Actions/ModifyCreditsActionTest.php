@@ -88,3 +88,37 @@ it('carries the requested and available amounts on the exception', function (): 
 
     Assert::fail('Expected InsufficientCreditsException.');
 });
+
+// Regression: `(bool) config(...)` read the env string "off"/"no"/"false" as true, turning
+// overdraft ON globally; `CREDITS_ALLOW_OVERDRAFT=1` overdrew while `about` said BLOCKED.
+it('reads allow_overdraft as an env boolean', function (mixed $value, bool $overdraws): void {
+    config()->set('credits.allow_overdraft', $value);
+    $user = User::query()->create(['name' => 'Ada']);
+
+    $deduct = fn (): Credit => app(ModifyCreditsAction::class)->execute($user, new CreditChangeData(amount: -50));
+
+    if ($overdraws) {
+        $deduct();
+
+        expect($user->creditsBalance())->toBe(-50);
+
+        return;
+    }
+
+    expect($deduct)->toThrow(InsufficientCreditsException::class)
+        ->and($user->creditsBalance())->toBe(0);
+})->with([
+    'true' => [true, true],
+    '"1"' => ['1', true],
+    '"true"' => ['true', true],
+    '"on"' => ['on', true],
+    '"yes"' => ['yes', true],
+    'false' => [false, false],
+    '"0"' => ['0', false],
+    '"false"' => ['false', false],
+    '"off"' => ['off', false],
+    '"no"' => ['no', false],
+    '""' => ['', false],
+    'unparseable' => ['maybe', false],
+    'null' => [null, false],
+]);
