@@ -22,6 +22,17 @@ use RoundlyConsulting\Testing\Database\DriverMatrix;
  */
 function raceDebit(User $user, int $amount, string $resultFile): int
 {
+    return raceOnSecondSession($user, fn (User $racer): mixed => $racer->modifyCredits($amount), 'debited', $resultFile);
+}
+
+/**
+ * Run `$operation` on the user from a forked second process with its own connection and
+ * write what happened to `$resultFile`: `$done`, `refused` or the error.
+ *
+ * @param  Closure(User): mixed  $operation
+ */
+function raceOnSecondSession(User $user, Closure $operation, string $done, string $resultFile): int
+{
     $pid = pcntl_fork();
 
     if ($pid !== 0) {
@@ -37,8 +48,8 @@ function raceDebit(User $user, int $amount, string $resultFile): int
         DB::setDefaultConnection('racer');
 
         $racer = User::on('racer')->findOrFail($user->getKey());
-        $racer->modifyCredits($amount);
-        $outcome = 'debited';
+        $operation($racer);
+        $outcome = $done;
     } catch (InsufficientCreditsException) {
         $outcome = 'refused';
     } catch (Throwable $e) {
@@ -137,4 +148,32 @@ it('serialises two debits on an empty bucket when the floor is below zero', func
     // −60 then −60 would be −120, below the −100 floor.
     expect($outcome)->toBe('refused')
         ->and($user->creditsBalance())->toBe(-60);
+})->skip(fn (): bool => DriverMatrix::driver() !== 'pgsql', 'needs a real engine (and pcntl + posix for the second process)');
+
+// Regression: setTo() read the balance without a lock and outside any transaction, so two
+// racing "set to 500" calls on a balance of 100 each computed +400 and the owner ended on 900.
+it('serialises two racing setTo calls so the second sees the first', function (): void {
+    $user = User::query()->create(['name' => 'Ada']);
+    $user->modifyCredits(100);
+
+    $resultFile = (string) tempnam(sys_get_temp_dir(), 'credits-race-');
+    $pid = 0;
+
+    DB::transaction(function () use ($user, $resultFile, &$pid): void {
+        // The first set, its transaction still open: every lock it took is held.
+        $user->setCreditsTo(500);
+
+        $pid = raceOnSecondSession($user, fn (User $racer): mixed => $racer->setCreditsTo(500), 'set', $resultFile);
+
+        waitForTheRacer($resultFile);
+    });
+
+    pcntl_waitpid($pid, $status);
+    $outcome = (string) file_get_contents($resultFile);
+    @unlink($resultFile);
+
+    // The racer waited, then found the balance already at 500: a no-op, not a second +400.
+    expect($outcome)->toBe('set')
+        ->and($user->creditsBalance())->toBe(500)
+        ->and($user->credits()->count())->toBe(2);
 })->skip(fn (): bool => DriverMatrix::driver() !== 'pgsql', 'needs a real engine (and pcntl + posix for the second process)');
