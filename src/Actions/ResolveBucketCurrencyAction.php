@@ -4,12 +4,11 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Credits\Actions;
 
-use RoundlyConsulting\Credits\Exceptions\BucketNotDenominatedException;
 use RoundlyConsulting\Money\Currency;
 use RoundlyConsulting\Money\Exceptions\InvalidMoneyConfiguration;
 use RoundlyConsulting\Money\Exceptions\UnknownCurrency;
 
-final class ResolveBucketCurrencyAction
+final readonly class ResolveBucketCurrencyAction
 {
     /**
      * The currency a bucket is denominated in, or null for a plain-credits bucket.
@@ -41,16 +40,6 @@ final class ResolveBucketCurrencyAction
         }
 
         return Currency::of($code);
-    }
-
-    /**
-     * The bucket's currency, for the money-typed helpers that have no meaning without one.
-     *
-     * @throws BucketNotDenominatedException when the bucket is not in `credits.currencies`
-     */
-    public function denominated(?string $bucket = null): Currency
-    {
-        return $this->execute($bucket) ?? throw new BucketNotDenominatedException($this->bucket($bucket));
     }
 
     private function bucket(?string $bucket): string

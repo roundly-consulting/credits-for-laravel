@@ -45,6 +45,13 @@ final class CreditsServiceProvider extends PackageServiceProvider
             ]);
     }
 
+    public function register(): void
+    {
+        parent::register();
+
+        $this->app->singleton(CreditsManager::class);
+    }
+
     public function boot(): void
     {
         parent::boot();

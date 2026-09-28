@@ -8,7 +8,7 @@ use RoundingMode;
 use RoundlyConsulting\Money\Math\MinorUnits;
 use RoundlyConsulting\Money\Support\RoundingModes;
 
-final class FormatCreditsAction
+final readonly class FormatCreditsAction
 {
     /**
      * Format an integer minor-unit amount into a locale-free plain decimal string.

@@ -7,6 +7,7 @@ namespace RoundlyConsulting\Credits\Commands;
 use Closure;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Model;
+use RoundlyConsulting\Credits\CreditsManager;
 use RoundlyConsulting\Credits\Interfaces\Creditable;
 
 final class ModifyCreditsCommand extends Command
@@ -19,7 +20,11 @@ final class ModifyCreditsCommand extends Command
 
     protected $description = 'Modify credits on the entities resolved by the credits.modifiable config';
 
-    public function handle(): int
+    /**
+     * Each resolved entity is changed through `Credits::for($entity)`, so the same overdraft
+     * guard and event apply — and `Credits::fake()` records it.
+     */
+    public function handle(CreditsManager $credits): int
     {
         $amountOption = $this->option('amount');
 
@@ -36,19 +41,21 @@ final class ModifyCreditsCommand extends Command
 
         $count = 0;
 
-        $modify = function (mixed $entity) use ($amount, $description, $bucket, $allowOverdraft, &$count): void {
+        $bucket = is_string($bucket) && $bucket !== '' ? $bucket : null;
+
+        $modify = function (mixed $entity) use ($credits, $amount, $description, $bucket, $allowOverdraft, &$count): void {
             if (! $entity instanceof Model || ! $entity instanceof Creditable) {
                 $this->warn('Skipped a resolved entity that is not a Creditable model.');
 
                 return;
             }
 
-            $entity->modifyCredits(
-                amount: $amount,
-                description: is_string($description) ? $description : null,
-                meta: ['info' => 'Credits modified by credits:modify command.'],
-                allowOverdraft: $allowOverdraft,
-                bucket: is_string($bucket) && $bucket !== '' ? $bucket : null,
+            $scope = $credits->for($entity)->allowOverdraft($allowOverdraft);
+
+            ($bucket === null ? $scope : $scope->bucket($bucket))->modify(
+                $amount,
+                is_string($description) ? $description : null,
+                ['info' => 'Credits modified by credits:modify command.'],
             );
 
             $count++;

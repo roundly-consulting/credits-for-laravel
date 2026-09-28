@@ -3,13 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Carbon;
-use RoundlyConsulting\Credits\Actions\GetCreditsBalanceAction;
 use RoundlyConsulting\Credits\Tests\Fixtures\User;
-
-function balanceAction(): GetCreditsBalanceAction
-{
-    return app(GetCreditsBalanceAction::class);
-}
 
 it('sums the balance across several named buckets', function (): void {
     $user = User::query()->create(['name' => 'Ada']);

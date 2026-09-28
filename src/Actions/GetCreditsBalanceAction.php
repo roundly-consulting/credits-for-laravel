@@ -11,7 +11,12 @@ use RoundlyConsulting\Credits\Interfaces\Creditable;
 use RoundlyConsulting\Credits\Models\Credit;
 use RoundlyConsulting\Credits\Support\CreditModel;
 
-final class GetCreditsBalanceAction
+/**
+ * One bucket's balance — the configured default unless named — optionally as of a point in
+ * time, and optionally read under a row lock (the overdraft guard's read). Sums across
+ * buckets are GetCreditsTotalAction.
+ */
+final readonly class GetCreditsBalanceAction
 {
     public function execute(
         Model&Creditable $creditable,
@@ -26,34 +31,6 @@ final class GetCreditsBalanceAction
             $at,
             $lockForUpdate,
         );
-    }
-
-    /**
-     * Sum the balance across several named buckets. Names are de-duplicated and an empty
-     * list short-circuits to zero.
-     *
-     * @param  array<int, string>  $buckets
-     */
-    public function forBuckets(
-        Model&Creditable $creditable,
-        array $buckets,
-        ?CarbonInterface $at = null,
-    ): int {
-        $buckets = array_values(array_unique($buckets));
-
-        if ($buckets === []) {
-            return 0;
-        }
-
-        return $this->sum($this->baseQuery($creditable)->buckets($buckets), $at);
-    }
-
-    /**
-     * Sum the balance across every bucket the entity owns (no bucket filter).
-     */
-    public function forAllBuckets(Model&Creditable $creditable, ?CarbonInterface $at = null): int
-    {
-        return $this->sum($this->baseQuery($creditable), $at);
     }
 
     /**

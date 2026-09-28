@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use RoundlyConsulting\Credits\CreditsManager;
 use RoundlyConsulting\Credits\Exceptions\CreditsException;
 use RoundlyConsulting\Credits\Models\Credit;
 use RoundlyConsulting\Money\Math\MinorUnits;
@@ -16,11 +17,13 @@ use RoundlyConsulting\Testing\Arch\ArchPresets;
 ArchPresets::strictTypes('RoundlyConsulting\Credits');
 
 /**
- * Two deliberate extension points are exempt: Credit, which `credits.model` invites a
- * host to subclass (pinned by the preset below instead), and CreditsException, the base
- * every credits error extends so a host can catch them uniformly.
+ * Three deliberate extension points are exempt: Credit, which `credits.model` invites a
+ * host to subclass (pinned by the preset below instead); CreditsException, the base
+ * every credits error extends so a host can catch them uniformly; and CreditsManager, which
+ * the package's own CreditsFake extends — that is how `Credits::fake()` stays a subtype of
+ * what constructor injection asks for.
  */
-ArchPresets::finalByDefault('RoundlyConsulting\Credits', [Credit::class, CreditsException::class]);
+ArchPresets::finalByDefault('RoundlyConsulting\Credits', [Credit::class, CreditsException::class, CreditsManager::class]);
 
 /**
  * The counter-weight, and the fleet's 7×-shipped fatal: `final` on a config-swappable
@@ -65,6 +68,12 @@ ArchPresets::morphColumnsUseTheSeam(__DIR__.'/../database/migrations');
 ArchPresets::runtimeRequireIsWhitelisted(__DIR__.'/../composer.json');
 
 ArchPresets::noDebuggingLeftovers();
+
+/**
+ * HasCredits delegates every read and write to CreditsManager, never an action, so
+ * `Credits::fake()` records changes made through the model too.
+ */
+ArchPresets::modelsGoThroughTheFacade('RoundlyConsulting\Credits');
 
 /**
  * Money's public API only. money-for-laravel marks its engine (`IntegerString`,

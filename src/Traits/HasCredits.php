@@ -8,13 +8,9 @@ use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use RoundingMode;
-use RoundlyConsulting\Credits\Actions\FormatCreditsAction;
-use RoundlyConsulting\Credits\Actions\GetCreditsBalanceAction;
-use RoundlyConsulting\Credits\Actions\ModifyCreditsAction;
-use RoundlyConsulting\Credits\Actions\ResolveBucketCurrencyAction;
-use RoundlyConsulting\Credits\Actions\SetCreditsAction;
-use RoundlyConsulting\Credits\DataTransferObjects\CreditChangeData;
+use RoundlyConsulting\Credits\CreditsManager;
 use RoundlyConsulting\Credits\Exceptions\BucketNotDenominatedException;
+use RoundlyConsulting\Credits\Handles\CreditsScope;
 use RoundlyConsulting\Credits\Interfaces\Creditable;
 use RoundlyConsulting\Credits\Models\Credit;
 use RoundlyConsulting\Credits\Support\CreditModel;
@@ -24,6 +20,9 @@ use RoundlyConsulting\Money\Exceptions\CurrencyMismatch;
 use RoundlyConsulting\Money\Money;
 
 /**
+ * Model shorthand for `Credits::for($this)`: every method delegates to CreditsManager, so
+ * `Credits::fake()` records changes made through the model too.
+ *
  * @mixin Model
  *
  * @phpstan-require-implements Creditable
@@ -38,12 +37,12 @@ trait HasCredits
 
     public function creditsBalance(?CarbonInterface $at = null, ?string $bucket = null): int
     {
-        return app(GetCreditsBalanceAction::class)->execute($this, $at, bucket: $bucket);
+        return $this->creditsIn($bucket)->balance($at);
     }
 
     public function hasCredits(int $amount = 1, ?CarbonInterface $at = null, ?string $bucket = null): bool
     {
-        return $this->creditsBalance($at, $bucket) >= $amount;
+        return $this->creditsIn($bucket)->has($amount, $at);
     }
 
     /**
@@ -54,7 +53,7 @@ trait HasCredits
      */
     public function creditsBalanceForBuckets(array $buckets, ?CarbonInterface $at = null): int
     {
-        return app(GetCreditsBalanceAction::class)->forBuckets($this, $buckets, $at);
+        return $this->creditsIn(null)->buckets($buckets)->balance($at);
     }
 
     /**
@@ -62,16 +61,16 @@ trait HasCredits
      */
     public function totalCreditsBalance(?CarbonInterface $at = null): int
     {
-        return app(GetCreditsBalanceAction::class)->forAllBuckets($this, $at);
+        return $this->creditsIn(null)->total($at);
     }
 
     /**
      * Format any integer minor-unit amount into a plain decimal string using the configured
-     * scale, with optional per-call scale and rounding-mode overrides.
+     * scale, with optional per-call scale and rounding-mode overrides — `Credits::format()`.
      */
     public function displayCredits(int $amount, ?int $scale = null, ?RoundingMode $rounding = null): string
     {
-        return app(FormatCreditsAction::class)->execute($amount, $scale, $rounding);
+        return app(CreditsManager::class)->format($amount, $scale, $rounding);
     }
 
     /**
@@ -85,12 +84,7 @@ trait HasCredits
         ?RoundingMode $rounding = null,
         ?CarbonInterface $at = null,
     ): string {
-        return app(FormatCreditsAction::class)->execute(
-            $this->creditsBalance($at, $bucket),
-            $scale,
-            $rounding,
-            $this->creditsCurrency($bucket)?->exponent,
-        );
+        return $this->creditsIn($bucket)->format($scale, $rounding, $at);
     }
 
     /**
@@ -99,7 +93,7 @@ trait HasCredits
      */
     public function creditsCurrency(?string $bucket = null): ?Currency
     {
-        return app(ResolveBucketCurrencyAction::class)->execute($bucket);
+        return app(CreditsManager::class)->currency($bucket);
     }
 
     /**
@@ -110,16 +104,14 @@ trait HasCredits
      */
     public function creditsBalanceMoney(?string $bucket = null, ?CarbonInterface $at = null): Money
     {
-        $currency = app(ResolveBucketCurrencyAction::class)->denominated($bucket);
-
-        return Money::ofMinor($this->creditsBalance($at, $bucket), $currency);
+        return $this->creditsIn($bucket)->money($at);
     }
 
     /**
      * Credit (positive) or debit (negative) a denominated bucket by a Money of its currency.
-     * Runs through `modifyCredits()` — the same overdraft, minimum-balance and locking
-     * rules, the same event — after two checks that happen before anything is written:
-     * the currency must be the bucket's, and the amount must fit the signed 64-bit ledger.
+     * The same overdraft, minimum-balance and locking rules as `modifyCredits()`, the same
+     * event — after two checks that happen before anything is written: the currency must be
+     * the bucket's, and the amount must fit the signed 64-bit ledger.
      *
      * @param  array<string, mixed>|null  $meta
      *
@@ -134,13 +126,7 @@ trait HasCredits
         bool $allowOverdraft = false,
         ?string $bucket = null,
     ): Credit {
-        $currency = app(ResolveBucketCurrencyAction::class)->denominated($bucket);
-
-        if (! $amount->currency()->equals($currency)) {
-            throw CurrencyMismatch::between($amount->currency(), $currency);
-        }
-
-        return $this->modifyCredits($amount->minorInt(), $description, $meta, $allowOverdraft, $bucket);
+        return $this->creditsIn($bucket)->allowOverdraft($allowOverdraft)->modifyMoney($amount, $description, $meta);
     }
 
     /**
@@ -151,7 +137,7 @@ trait HasCredits
      */
     public function formatCreditsBalance(?string $bucket = null, ?string $locale = null): string
     {
-        return $this->creditsBalanceMoney($bucket)->format($locale);
+        return $this->creditsIn($bucket)->formatMoney($locale);
     }
 
     /**
@@ -164,13 +150,7 @@ trait HasCredits
         bool $allowOverdraft = false,
         ?string $bucket = null,
     ): Credit {
-        return app(ModifyCreditsAction::class)->execute($this, new CreditChangeData(
-            amount: $amount,
-            description: $description,
-            meta: $meta,
-            allowOverdraft: $allowOverdraft,
-            bucket: $bucket,
-        ));
+        return $this->creditsIn($bucket)->allowOverdraft($allowOverdraft)->modify($amount, $description, $meta);
     }
 
     /**
@@ -183,7 +163,7 @@ trait HasCredits
         bool $allowOverdraft = false,
         ?string $bucket = null,
     ): ?Credit {
-        return app(SetCreditsAction::class)->execute($this, $amount, $description, $meta, $allowOverdraft, $bucket);
+        return $this->creditsIn($bucket)->allowOverdraft($allowOverdraft)->setTo($amount, $description, $meta);
     }
 
     /**
@@ -192,5 +172,12 @@ trait HasCredits
     protected function creditModel(): string
     {
         return CreditModel::class();
+    }
+
+    private function creditsIn(?string $bucket): CreditsScope
+    {
+        $scope = app(CreditsManager::class)->for($this);
+
+        return $bucket === null ? $scope : $scope->bucket($bucket);
     }
 }

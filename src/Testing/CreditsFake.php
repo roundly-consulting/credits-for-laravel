@@ -1,0 +1,237 @@
+<?php
+
+declare(strict_types=1);
+
+namespace RoundlyConsulting\Credits\Testing;
+
+use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Model;
+use PHPUnit\Framework\Assert;
+use RoundlyConsulting\Credits\CreditsManager;
+use RoundlyConsulting\Credits\DataTransferObjects\CreditChangeData;
+use RoundlyConsulting\Credits\Exceptions\InsufficientCreditsException;
+use RoundlyConsulting\Credits\Interfaces\Creditable;
+use RoundlyConsulting\Credits\Models\Credit;
+
+/**
+ * The recording double `Credits::fake()` installs. It writes no ledger row and dispatches no
+ * event, and records every change — made through `Credits::for()`, the flat verbs, the
+ * HasCredits trait or `credits:modify`, which all go through the manager.
+ *
+ * Changes land in an in-memory ledger, and balances add it to the owner's real rows, so a
+ * grant on the fake can be spent on the fake. The overdraft guard still applies: a debit
+ * the real manager would refuse throws InsufficientCreditsException here too, and is not
+ * recorded.
+ */
+final class CreditsFake extends CreditsManager
+{
+    /** @var list<array{kind: 'added'|'deducted'|'set', owner: Model, amount: int, bucket: string}> */
+    private array $recorded = [];
+
+    /** @var list<array{owner: Model, bucket: string, amount: int, at: CarbonImmutable}> */
+    private array $ledger = [];
+
+    public function balance(Model&Creditable $owner, ?string $bucket = null, ?CarbonInterface $at = null): int
+    {
+        $bucket = $this->resolve($bucket);
+
+        return parent::balance($owner, $bucket, $at) + $this->pending($owner, $at, static fn (string $row): bool => $row === $bucket);
+    }
+
+    /**
+     * @param  array<int, string>|null  $buckets
+     */
+    public function total(Model&Creditable $owner, ?array $buckets = null, ?CarbonInterface $at = null): int
+    {
+        if ($buckets === []) {
+            return 0;
+        }
+
+        return parent::total($owner, $buckets, $at)
+            + $this->pending($owner, $at, static fn (string $row): bool => $buckets === null || in_array($row, $buckets, true));
+    }
+
+    /**
+     * Records a grant or a deduction by its sign and returns an unsaved ledger row.
+     */
+    public function modify(Model&Creditable $owner, CreditChangeData $data): Credit
+    {
+        $credit = $this->apply($owner, $data);
+
+        $this->record($data->amount < 0 ? 'deducted' : 'added', $owner, abs($data->amount), $data->resolvedBucket());
+
+        return $credit;
+    }
+
+    /**
+     * Records the requested target — even when it already matches — and applies the delta.
+     *
+     * @param  array<string, mixed>|null  $meta
+     */
+    public function setTo(
+        Model&Creditable $owner,
+        int $amount,
+        ?string $description = null,
+        ?array $meta = null,
+        bool $allowOverdraft = false,
+        ?string $bucket = null,
+    ): ?Credit {
+        $data = new CreditChangeData(
+            amount: $amount - $this->balance($owner, $bucket),
+            description: $description,
+            meta: $meta,
+            allowOverdraft: $allowOverdraft,
+            bucket: $bucket,
+        );
+
+        $credit = $data->amount === 0 ? null : $this->apply($owner, $data);
+
+        $this->record('set', $owner, $amount, $data->resolvedBucket());
+
+        return $credit;
+    }
+
+    /**
+     * Assert credits were added to the owner — any grant, or one of `$amount` and/or in `$bucket`.
+     */
+    public function assertAdded(Model $owner, ?int $amount = null, ?string $bucket = null): void
+    {
+        Assert::assertTrue(
+            $this->matches('added', $owner, $amount, $bucket),
+            'Expected credits to be added'.$this->describe($owner, $amount, $bucket).', but none were.',
+        );
+    }
+
+    public function assertNothingAdded(): void
+    {
+        Assert::assertFalse($this->recordedAny('added'), 'Expected no credits to be added, but some were.');
+    }
+
+    /**
+     * Assert credits were deducted from the owner — any deduction, or one of `$amount`
+     * (positive, as passed to `deduct()`) and/or in `$bucket`.
+     */
+    public function assertDeducted(Model $owner, ?int $amount = null, ?string $bucket = null): void
+    {
+        Assert::assertTrue(
+            $this->matches('deducted', $owner, $amount, $bucket),
+            'Expected credits to be deducted'.$this->describe($owner, $amount, $bucket).', but none were.',
+        );
+    }
+
+    public function assertNothingDeducted(): void
+    {
+        Assert::assertFalse($this->recordedAny('deducted'), 'Expected no credits to be deducted, but some were.');
+    }
+
+    /**
+     * Assert the owner's balance was set — to any amount, or to `$amount` and/or in `$bucket`.
+     */
+    public function assertSet(Model $owner, ?int $amount = null, ?string $bucket = null): void
+    {
+        Assert::assertTrue(
+            $this->matches('set', $owner, $amount, $bucket),
+            'Expected a balance to be set'.$this->describe($owner, $amount, $bucket).', but none was.',
+        );
+    }
+
+    public function assertNothingSet(): void
+    {
+        Assert::assertFalse($this->recordedAny('set'), 'Expected no balance to be set, but one was.');
+    }
+
+    /**
+     * Assert no credits were added, deducted or set at all.
+     */
+    public function assertNothingModified(): void
+    {
+        Assert::assertSame([], $this->recorded, 'Expected no credits to be modified, but some were.');
+    }
+
+    /**
+     * The overdraft guard, against the fake's balance, then an in-memory ledger entry.
+     *
+     * @throws InsufficientCreditsException
+     */
+    private function apply(Model&Creditable $owner, CreditChangeData $data): Credit
+    {
+        $bucket = $data->resolvedBucket();
+
+        if ($data->amount < 0 && ! $data->allowOverdraft && ! (bool) config('credits.allow_overdraft', false)) {
+            $available = $this->balance($owner, $bucket);
+
+            if ($available + $data->amount < (int) config('credits.minimum_balance', 0)) {
+                throw new InsufficientCreditsException(creditable: $owner, requested: $data->amount, available: $available);
+            }
+        }
+
+        $this->ledger[] = ['owner' => $owner, 'bucket' => $bucket, 'amount' => $data->amount, 'at' => CarbonImmutable::now()];
+
+        /** @var Credit $credit */
+        $credit = $owner->credits()->make($data->toAttributes());
+
+        return $credit;
+    }
+
+    /**
+     * @param  'added'|'deducted'|'set'  $kind
+     */
+    private function record(string $kind, Model $owner, int $amount, string $bucket): void
+    {
+        $this->recorded[] = ['kind' => $kind, 'owner' => $owner, 'amount' => $amount, 'bucket' => $bucket];
+    }
+
+    /**
+     * @param  callable(string): bool  $inBucket
+     */
+    private function pending(Model $owner, ?CarbonInterface $at, callable $inBucket): int
+    {
+        $sum = 0;
+
+        foreach ($this->ledger as $row) {
+            if ($row['owner']->is($owner) && $inBucket($row['bucket']) && ($at === null || $row['at']->lessThanOrEqualTo($at))) {
+                $sum += $row['amount'];
+            }
+        }
+
+        return $sum;
+    }
+
+    private function matches(string $kind, Model $owner, ?int $amount, ?string $bucket): bool
+    {
+        foreach ($this->recorded as $entry) {
+            if ($entry['kind'] === $kind
+                && $entry['owner']->is($owner)
+                && ($amount === null || $entry['amount'] === $amount)
+                && ($bucket === null || $entry['bucket'] === $bucket)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function recordedAny(string $kind): bool
+    {
+        foreach ($this->recorded as $entry) {
+            if ($entry['kind'] === $kind) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function describe(Model $owner, ?int $amount, ?string $bucket): string
+    {
+        return ' for '.$owner::class.' #'.var_export($owner->getKey(), true)
+            .($amount === null ? '' : ", amount {$amount}")
+            .($bucket === null ? '' : ", bucket \"{$bucket}\"");
+    }
+
+    private function resolve(?string $bucket): string
+    {
+        return $bucket ?? (string) config('credits.default_bucket', 'default');
+    }
+}

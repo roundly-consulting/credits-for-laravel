@@ -115,7 +115,10 @@
         "laravel": {
             "providers": [
                 "RoundlyConsulting\\Credits\\CreditsServiceProvider"
-            ]
+            ],
+            "aliases": {
+                "Credits": "RoundlyConsulting\\Credits\\Facades\\Credits"
+            }
         }
     },
     "minimum-stability": "dev",
