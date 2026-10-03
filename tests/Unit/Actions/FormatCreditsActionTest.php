@@ -153,8 +153,14 @@ it('refuses an unknown or legacy rounding config value at first use', function (
 })->with([
     'ambiguous alias' => ['half_up'],
     'legacy PHP_ROUND_* constant' => [PHP_ROUND_HALF_UP],
-    'null' => [null],
 ])->throws(InvalidMoneyConfiguration::class, '[credits.rounding]');
+
+it('reads an unset rounding config as half_away_from_zero', function (?string $configured): void {
+    config()->set('credits.scale', 2);
+    config()->set('credits.rounding', $configured);
+
+    expect(format(-1250, scale: 0))->toBe('-13');
+})->with(['null' => [null], 'empty' => [''], 'whitespace' => ['  ']]);
 
 it('does not consult the rounding config when a mode is passed per call', function (): void {
     config()->set('credits.scale', 2);

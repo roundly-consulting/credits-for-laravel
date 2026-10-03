@@ -24,7 +24,8 @@ final readonly class ResolveBucketCurrencyAction
     public function execute(?string $bucket = null): ?Currency
     {
         $bucket = $this->bucket($bucket);
-        $currencies = config('credits.currencies', []);
+        $currencies = config('credits.currencies');
+        $currencies = CreditsConfig::blank($currencies) ? [] : $currencies;
 
         if (! is_array($currencies)) {
             throw InvalidMoneyConfiguration::invalid('credits.currencies', 'it must map bucket names to currency codes');
@@ -32,11 +33,12 @@ final readonly class ResolveBucketCurrencyAction
 
         $code = $currencies[$bucket] ?? null;
 
-        if ($code === null) {
+        // Not set — absent, null or blank (a host's `KEY=`) — leaves a plain-credits bucket.
+        if (CreditsConfig::blank($code)) {
             return null;
         }
 
-        if (! is_string($code) || trim($code) === '') {
+        if (! is_string($code)) {
             throw InvalidMoneyConfiguration::invalid("credits.currencies.{$bucket}", 'it must be a currency code string');
         }
 

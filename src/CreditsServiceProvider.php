@@ -74,7 +74,7 @@ final class CreditsServiceProvider extends PackageServiceProvider
     private static function rounding(): string
     {
         try {
-            return RoundingModes::toValue(RoundingModes::fromValue(config('credits.rounding'), 'credits.rounding'));
+            return RoundingModes::toValue(CreditsConfig::rounding());
         } catch (InvalidMoneyConfiguration) {
             return 'INVALID';
         }

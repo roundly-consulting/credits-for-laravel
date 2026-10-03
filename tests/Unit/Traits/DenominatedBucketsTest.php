@@ -86,9 +86,18 @@ describe('creditsCurrency', function (): void {
         $this->user->creditsCurrency('store_credit');
     })->with([
         'integer' => [978],
-        'empty string' => ['  '],
         'array' => [['EUR']],
     ])->throws(InvalidMoneyConfiguration::class, '[credits.currencies.store_credit]');
+
+    it('reads a blank code or map as not set, leaving a plain-credits bucket', function (mixed $currencies): void {
+        config()->set('credits.currencies', $currencies);
+
+        expect($this->user->creditsCurrency('store_credit'))->toBeNull();
+    })->with([
+        'blank code' => [['store_credit' => '']],
+        'whitespace code' => [['store_credit' => '  ']],
+        'blank map' => [''],
+    ]);
 });
 
 describe('creditsBalanceMoney', function (): void {

@@ -11,7 +11,8 @@ use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
 /**
  * Owner rule: a typo in a host's config fails loudly and never falls back silently. A junk
  * floor used to cast to 0 (letting every deduction down to zero through), a junk scale to 0,
- * and a non-list resolver config to "nothing registered".
+ * and a non-list resolver config to "nothing registered". A blank value (`''` or whitespace —
+ * a host's `KEY=`) is not junk: it is not set, so the default applies.
  */
 beforeEach(function (): void {
     $this->user = User::query()->create(['name' => 'Ada']);
@@ -27,9 +28,18 @@ it('refuses a junk minimum balance instead of casting it to 0 (strict config)', 
     'word' => 'fifty',
     'decimal' => '50.5',
     'exponent' => '1e3',
-    'empty' => '',
     'bool' => true,
 ]);
+
+it('keeps a zero floor when the minimum balance is blank (strict config)', function (string $blank): void {
+    $this->user->modifyCredits(10);
+    config()->set('credits.minimum_balance', $blank);
+
+    Credits::for($this->user)->deduct(10);
+
+    expect(Credits::for($this->user)->balance())->toBe(0)
+        ->and(fn () => Credits::for($this->user)->deduct(1))->toThrow(InsufficientCreditsException::class);
+})->with(['empty' => '', 'whitespace' => '  ']);
 
 it('enforces a canonical integer-string minimum balance from env (strict config)', function (): void {
     $this->user->modifyCredits(100);
@@ -68,23 +78,28 @@ it('reads a canonical integer-string scale (strict config)', function (): void {
     expect($this->user->displayCreditsBalance())->toBe('1.50');
 });
 
-it('refuses a blank or wrong-typed default bucket (strict config)', function (mixed $value): void {
+it('refuses a wrong-typed default bucket (strict config)', function (mixed $value): void {
     config()->set('credits.default_bucket', $value);
 
     expect(fn () => Credits::for($this->user)->balance())
         ->toThrow(InvalidConfigurationException::class, '[credits.default_bucket]');
 })->with([
-    'empty' => '',
-    'blank' => '  ',
     'array' => [['default']],
+    'int' => 5,
 ]);
 
-it('uses the default bucket only when the key is absent (strict config)', function (): void {
-    config()->set('credits.default_bucket', null);
+it('uses the default bucket when the key is not set (strict config)', function (?string $value): void {
+    config()->set('credits.default_bucket', $value);
 
     Credits::for($this->user)->add(5);
 
     expect($this->user->credits()->sole()->bucket)->toBe('default');
+})->with(['absent' => null, 'empty' => '', 'whitespace' => '  ']);
+
+it('reads a blank modifiable config as no resolvers (strict config)', function (): void {
+    config()->set('credits.modifiable', '');
+
+    expect(Artisan::call('credits:modify', ['--amount' => 10]))->toBe(0);
 });
 
 it('refuses a non-list modifiable config instead of modifying nothing (strict config)', function (mixed $value): void {
@@ -100,7 +115,7 @@ it('refuses a non-list modifiable config instead of modifying nothing (strict co
 it('reports a broken setting as INVALID in about (strict config)', function (): void {
     config()->set('credits.minimum_balance', 'fifty');
     config()->set('credits.scale', 'two');
-    config()->set('credits.default_bucket', '');
+    config()->set('credits.default_bucket', ['x']);
     config()->set('credits.modifiable', 'nope');
 
     Artisan::call('about', ['--only' => 'credits']);

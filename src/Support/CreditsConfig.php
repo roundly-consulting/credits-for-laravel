@@ -4,15 +4,19 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Credits\Support;
 
+use RoundingMode;
+use RoundlyConsulting\Money\Exceptions\InvalidMoneyConfiguration;
 use RoundlyConsulting\Money\Math\MinorUnits;
+use RoundlyConsulting\Money\Support\RoundingModes;
 use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
 use RoundlyConsulting\PackageToolkit\Support\Config;
 
 /**
- * Strict reads of the non-boolean `credits.*` settings. An absent (null) key takes its default;
- * a present value of the wrong shape — `'five'` for the floor, a blank bucket, a string where
- * the resolver list belongs — throws {@see InvalidConfigurationException} naming the key. A
- * typo is never cast to 0 or swapped for the default.
+ * Strict reads of the non-boolean `credits.*` settings. A key that is not set — absent, null or
+ * blank (`''` or whitespace, a host's `KEY=`) — takes its default; a present value of the wrong
+ * shape — `'five'` for the floor, an array for the bucket, a string where the resolver list
+ * belongs — throws {@see InvalidConfigurationException} naming the key. A typo is never cast to
+ * 0 or swapped for the default.
  *
  * @internal
  */
@@ -33,7 +37,17 @@ final class CreditsConfig
     /** The bucket a call without one reads and writes. */
     public static function defaultBucket(): string
     {
-        return config('credits.default_bucket') === null ? 'default' : Config::requireString('credits.default_bucket');
+        return self::blank(config('credits.default_bucket')) ? 'default' : Config::requireString('credits.default_bucket');
+    }
+
+    /**
+     * The display rounding mode; not set means `half_away_from_zero`.
+     *
+     * @throws InvalidMoneyConfiguration when the value names no mode
+     */
+    public static function rounding(): RoundingMode
+    {
+        return RoundingModes::fromValue(config('credits.rounding'), 'credits.rounding', RoundingMode::HalfAwayFromZero);
     }
 
     /**
@@ -43,7 +57,8 @@ final class CreditsConfig
      */
     public static function modifiable(): array
     {
-        $modifiable = config('credits.modifiable') ?? [];
+        $modifiable = config('credits.modifiable');
+        $modifiable = self::blank($modifiable) ? [] : $modifiable;
 
         if (! is_array($modifiable)) {
             throw new InvalidConfigurationException('Configuration value [credits.modifiable] must be a list of closures, ['.get_debug_type($modifiable).'] given.');
@@ -56,5 +71,11 @@ final class CreditsConfig
         }
 
         return array_values($modifiable);
+    }
+
+    /** Not set: absent, null or a blank string (`''` or whitespace — a host's `KEY=`). */
+    public static function blank(mixed $value): bool
+    {
+        return $value === null || (is_string($value) && trim($value) === '');
     }
 }
