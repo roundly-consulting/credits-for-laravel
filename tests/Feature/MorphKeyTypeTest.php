@@ -6,6 +6,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use RoundlyConsulting\Credits\Tests\Fixtures\UuidUser;
+use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
 use RoundlyConsulting\Testing\Database\DriverMatrix;
 
 /**
@@ -97,15 +98,15 @@ it('keeps the inbound PK and outbound morph axes independent', function (): void
         ->and(morphKtColumn('credits', 'creditable_id')['type'])->toBe('bigint');
 })->skip($pgsqlOnly, 'needs the postgres catalog to tell the key types apart — sqlite affinity hides it');
 
-it('falls back to the bigint schema for an unrecognized outbound key type', function (): void {
+it('refuses to migrate on an unrecognized key type instead of falling back to bigint', function (): void {
     config()->set('credits.key_type', 'nonsense');
     config()->set('credits.primary_key_type', 'bigint');
 
-    runCreditsMigration();
-
-    $expected = DriverMatrix::driver() === 'pgsql' ? 'bigint' : 'integer';
-
-    expect(morphKtColumn('credits', 'creditable_id')['type'])->toBe($expected);
+    // A typo in a host's config must stop the migration, never silently build bigint
+    // columns for a uuid/ulid-keyed host.
+    expect(function (): void {
+        runCreditsMigration();
+    })->toThrow(InvalidConfigurationException::class, 'Configuration value [credits.key_type] must be one of [bigint, uuid, ulid] (case-insensitive), [nonsense] given.');
 });
 
 /**
