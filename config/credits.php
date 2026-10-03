@@ -139,7 +139,8 @@ return [
     |   half_odd            — halves to the nearest odd
     |   towards_zero, away_from_zero, positive_infinity, negative_infinity
     |
-    | An unknown value throws InvalidMoneyConfiguration on first use.
+    | A blank value (CREDITS_ROUNDING=) is not set, so half_away_from_zero
+    | applies; an unknown value throws InvalidMoneyConfiguration on first use.
     | Individual calls may override this with a \RoundingMode argument.
     |
     */
