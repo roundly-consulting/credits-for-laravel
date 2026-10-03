@@ -18,10 +18,14 @@ it('resolves a configured subclass of the packaged model', function (): void {
     expect(CreditModel::class())->toBe(CustomCredit::class);
 });
 
-it('falls back to the packaged model when the configured model is not a credit', function (): void {
+it('refuses a foreign model instead of falling back to the packaged one', function (): void {
+    // The toolkit refuses any class that is not the packaged model or a subclass of it.
     config()->set('credits.model', User::class);
 
-    expect(CreditModel::class())->toBe(Credit::class);
+    expect(fn (): string => CreditModel::class())->toThrow(
+        InvalidConfigurationException::class,
+        'Configuration value [credits.model] must be a class-string of ['.Credit::class.'], ['.User::class.'] given.',
+    );
 });
 
 it('throws when the configured model is not an eloquent model', function (): void {
