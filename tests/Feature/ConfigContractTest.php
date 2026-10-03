@@ -15,12 +15,6 @@ declare(strict_types=1);
  */
 it('ships exactly the config keys it reads', function (): void {
     expect(__DIR__.'/../../config/credits.php')->toSatisfyConfigContract([__DIR__.'/../../src', __DIR__.'/../../database'], [
-        // `credits.model` is read through the toolkit's `ModelResolver::for('credits.model',
-        // …)` seam rather than a `config()` call. It is a real read that drives the whole
-        // model swap, but it is not a `config(` token, so the prefix is what makes it
-        // visible to the scraper.
-        'extraReadPrefixes' => ['credits.'],
-
         // Deliberately NO `excludeFromReverse` for the provider. The testing README's own
         // example excludes the service provider on the grounds that "a render is not a
         // read" — but this provider's `contributesToAbout()` closure calls
