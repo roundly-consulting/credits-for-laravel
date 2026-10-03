@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Credits\Actions;
 
 use RoundingMode;
+use RoundlyConsulting\Credits\Support\CreditsConfig;
 use RoundlyConsulting\Money\Math\MinorUnits;
 use RoundlyConsulting\Money\Support\RoundingModes;
 
@@ -29,7 +30,7 @@ final readonly class FormatCreditsAction
         ?RoundingMode $rounding = null,
         ?int $storedScale = null,
     ): string {
-        $stored = $storedScale ?? (int) config('credits.scale', 0);
+        $stored = $storedScale ?? CreditsConfig::scale();
         $display = max(0, $scale ?? $stored);
         $mode = $rounding ?? RoundingModes::fromValue(config('credits.rounding'), 'credits.rounding');
 

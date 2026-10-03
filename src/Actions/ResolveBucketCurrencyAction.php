@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Credits\Actions;
 
+use RoundlyConsulting\Credits\Support\CreditsConfig;
 use RoundlyConsulting\Money\Currency;
 use RoundlyConsulting\Money\Exceptions\InvalidMoneyConfiguration;
 use RoundlyConsulting\Money\Exceptions\UnknownCurrency;
@@ -44,6 +45,6 @@ final readonly class ResolveBucketCurrencyAction
 
     private function bucket(?string $bucket): string
     {
-        return $bucket ?? (string) config('credits.default_bucket', 'default');
+        return $bucket ?? CreditsConfig::defaultBucket();
     }
 }

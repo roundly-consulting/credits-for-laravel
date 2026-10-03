@@ -10,6 +10,7 @@ use RoundlyConsulting\Credits\Events\CreditsModified;
 use RoundlyConsulting\Credits\Exceptions\InsufficientCreditsException;
 use RoundlyConsulting\Credits\Interfaces\Creditable;
 use RoundlyConsulting\Credits\Models\Credit;
+use RoundlyConsulting\Credits\Support\CreditsConfig;
 use RoundlyConsulting\Credits\Support\OwnerLock;
 use RoundlyConsulting\PackageToolkit\Support\Config;
 
@@ -62,7 +63,7 @@ final readonly class ModifyCreditsAction
             return;
         }
 
-        if ($available + $data->amount < (int) config('credits.minimum_balance', 0)) {
+        if ($available + $data->amount < CreditsConfig::minimumBalance()) {
             throw new InsufficientCreditsException(
                 creditable: $creditable,
                 requested: $data->amount,

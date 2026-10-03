@@ -14,6 +14,7 @@ use RoundlyConsulting\Credits\Exceptions\BucketNotDenominatedException;
 use RoundlyConsulting\Credits\Exceptions\InsufficientCreditsException;
 use RoundlyConsulting\Credits\Interfaces\Creditable;
 use RoundlyConsulting\Credits\Models\Credit;
+use RoundlyConsulting\Credits\Support\CreditsConfig;
 use RoundlyConsulting\Money\Currency;
 use RoundlyConsulting\Money\Exceptions\AmountOverflow;
 use RoundlyConsulting\Money\Exceptions\CurrencyMismatch;
@@ -220,7 +221,7 @@ final readonly class CreditsScope
     private function denominated(): Currency
     {
         return $this->currency() ?? throw new BucketNotDenominatedException(
-            $this->bucket ?? (string) config('credits.default_bucket', 'default'),
+            $this->bucket ?? CreditsConfig::defaultBucket(),
         );
     }
 

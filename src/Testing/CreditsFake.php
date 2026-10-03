@@ -13,6 +13,7 @@ use RoundlyConsulting\Credits\DataTransferObjects\CreditChangeData;
 use RoundlyConsulting\Credits\Exceptions\InsufficientCreditsException;
 use RoundlyConsulting\Credits\Interfaces\Creditable;
 use RoundlyConsulting\Credits\Models\Credit;
+use RoundlyConsulting\Credits\Support\CreditsConfig;
 use RoundlyConsulting\PackageToolkit\Support\Config;
 
 /**
@@ -162,7 +163,7 @@ final class CreditsFake extends CreditsManager
         if ($data->amount < 0 && ! $data->allowOverdraft && ! Config::boolean('credits.allow_overdraft')) {
             $available = $this->balance($owner, $bucket);
 
-            if ($available + $data->amount < (int) config('credits.minimum_balance', 0)) {
+            if ($available + $data->amount < CreditsConfig::minimumBalance()) {
                 throw new InsufficientCreditsException(creditable: $owner, requested: $data->amount, available: $available);
             }
         }
@@ -233,6 +234,6 @@ final class CreditsFake extends CreditsManager
 
     private function resolve(?string $bucket): string
     {
-        return $bucket ?? (string) config('credits.default_bucket', 'default');
+        return $bucket ?? CreditsConfig::defaultBucket();
     }
 }

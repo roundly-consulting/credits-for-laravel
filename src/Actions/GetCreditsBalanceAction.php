@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Credits\Interfaces\Creditable;
 use RoundlyConsulting\Credits\Models\Credit;
 use RoundlyConsulting\Credits\Support\CreditModel;
+use RoundlyConsulting\Credits\Support\CreditsConfig;
 
 /**
  * One bucket's balance — the configured default unless named — optionally as of a point in
@@ -24,7 +25,7 @@ final readonly class GetCreditsBalanceAction
         bool $lockForUpdate = false,
         ?string $bucket = null,
     ): int {
-        $resolvedBucket = $bucket ?? (string) config('credits.default_bucket', 'default');
+        $resolvedBucket = $bucket ?? CreditsConfig::defaultBucket();
 
         return $this->sum(
             $this->baseQuery($creditable)->bucket($resolvedBucket),

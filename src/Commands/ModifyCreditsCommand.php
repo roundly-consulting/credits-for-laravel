@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Credits\Commands;
 
-use Closure;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Credits\CreditsManager;
 use RoundlyConsulting\Credits\Exceptions\InsufficientCreditsException;
 use RoundlyConsulting\Credits\Interfaces\Creditable;
+use RoundlyConsulting\Credits\Support\CreditsConfig;
 
 final class ModifyCreditsCommand extends Command
 {
@@ -72,10 +72,7 @@ final class ModifyCreditsCommand extends Command
             $count++;
         };
 
-        /** @var iterable<Closure(Closure(mixed): void): void> $modifiable */
-        $modifiable = config('credits.modifiable', []);
-
-        foreach ($modifiable as $callback) {
+        foreach (CreditsConfig::modifiable() as $callback) {
             $callback($modify);
         }
 

@@ -4,12 +4,15 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Credits;
 
+use Closure;
 use RoundlyConsulting\Credits\Commands\ModifyCreditsCommand;
 use RoundlyConsulting\Credits\Support\CreditModel;
+use RoundlyConsulting\Credits\Support\CreditsConfig;
 use RoundlyConsulting\Money\Exceptions\InvalidMoneyConfiguration;
 use RoundlyConsulting\Money\Support\RoundingModes;
 use RoundlyConsulting\PackageToolkit\Concerns\RegistersBlueprintMacros;
 use RoundlyConsulting\PackageToolkit\Enums\KeyType;
+use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
 use RoundlyConsulting\PackageToolkit\Package;
 use RoundlyConsulting\PackageToolkit\PackageServiceProvider;
 use RoundlyConsulting\PackageToolkit\Support\Config;
@@ -38,9 +41,9 @@ final class CreditsServiceProvider extends PackageServiceProvider
                 // different axis from the credits table's own id — see the config.
                 'Creditable key type' => KeyType::fromConfig('credits.key_type')->value,
                 'Overdraft' => Config::boolean('credits.allow_overdraft') ? 'ALLOWED' : 'BLOCKED',
-                'Minimum balance' => (string) (int) config('credits.minimum_balance', 0),
-                'Default bucket' => (string) config('credits.default_bucket', 'default'),
-                'Scale' => (string) (int) config('credits.scale', 0),
+                'Minimum balance' => self::orInvalid(static fn (): string => (string) CreditsConfig::minimumBalance()),
+                'Default bucket' => self::orInvalid(CreditsConfig::defaultBucket(...)),
+                'Scale' => self::orInvalid(static fn (): string => (string) CreditsConfig::scale()),
                 'Rounding' => self::rounding(),
                 'Modifiable resolvers' => self::modifiableResolvers(),
             ]);
@@ -84,9 +87,25 @@ final class CreditsServiceProvider extends PackageServiceProvider
      */
     private static function modifiableResolvers(): string
     {
-        $modifiable = config('credits.modifiable', []);
-        $count = is_countable($modifiable) ? count($modifiable) : 0;
+        return self::orInvalid(static function (): string {
+            $count = count(CreditsConfig::modifiable());
 
-        return $count === 0 ? 'NONE' : $count.' registered';
+            return $count === 0 ? 'NONE' : $count.' registered';
+        });
+    }
+
+    /**
+     * A strict read for an `about` row: a broken value renders as INVALID rather than as the
+     * default it no longer falls back to, and `about` keeps working.
+     *
+     * @param  Closure(): string  $read
+     */
+    private static function orInvalid(Closure $read): string
+    {
+        try {
+            return $read();
+        } catch (InvalidConfigurationException) {
+            return 'INVALID';
+        }
     }
 }

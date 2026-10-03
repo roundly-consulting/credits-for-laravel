@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Credits\DataTransferObjects;
 
+use RoundlyConsulting\Credits\Support\CreditsConfig;
+
 final readonly class CreditChangeData
 {
     /**
@@ -23,7 +25,7 @@ final readonly class CreditChangeData
      */
     public function resolvedBucket(): string
     {
-        return $this->bucket ?? (string) config('credits.default_bucket', 'default');
+        return $this->bucket ?? CreditsConfig::defaultBucket();
     }
 
     /**
