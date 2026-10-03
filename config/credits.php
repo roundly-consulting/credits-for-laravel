@@ -26,8 +26,8 @@ return [
     |
     | The key type used for the polymorphic `creditable` column — the model that
     | holds the credits. It must match your creditable models' primary key:
-    | "bigint" (the Laravel default), "uuid" or "ulid". Anything unrecognized
-    | falls back to "bigint".
+    | "bigint" (the Laravel default), "uuid" or "ulid". Anything else throws an
+    | InvalidConfigurationException naming the key.
     |
     | This is your CREDITABLE model's key type, not the credits table's own — see
     | "primary_key_type" below. The two are independent: a host with uuid users
@@ -46,7 +46,8 @@ return [
     |--------------------------------------------------------------------------
     |
     | The primary-key strategy of the credits table itself: "bigint" (the Laravel
-    | default), "uuid" or "ulid". Anything unrecognized falls back to "bigint".
+    | default), "uuid" or "ulid". Anything else throws an
+    | InvalidConfigurationException naming the key.
     |
     | This is the key OTHER packages' polymorphic columns point at. A morph column
     | (`likeable_id`, `reportable_id`, ...) defaults to an unsigned bigint, so on a
@@ -70,8 +71,9 @@ return [
     | the configured minimum is rejected with an InsufficientCreditsException.
     | Set this to true to permit deductions below the minimum globally. The env
     | value is read as a boolean: "1", "true", "on" and "yes" enable it; "0",
-    | "false", "off", "no" and anything unrecognised leave it off. Individual
-    | calls can always opt in via the `allowOverdraft` argument.
+    | "false", "off" and "no" leave it off; anything else throws an
+    | InvalidConfigurationException naming the key. Individual calls can always
+    | opt in via the `allowOverdraft` argument.
     |
     */
 
