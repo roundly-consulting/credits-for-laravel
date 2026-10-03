@@ -10,6 +10,7 @@ use RoundlyConsulting\Credits\Events\CreditsModified;
 use RoundlyConsulting\Credits\Exceptions\InsufficientCreditsException;
 use RoundlyConsulting\Credits\Models\Credit;
 use RoundlyConsulting\Credits\Tests\Fixtures\User;
+use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
 
 it('records a row with the right attributes and returns the credit', function (): void {
     $user = User::query()->create(['name' => 'Ada']);
@@ -119,6 +120,15 @@ it('reads allow_overdraft as an env boolean', function (mixed $value, bool $over
     '"off"' => ['off', false],
     '"no"' => ['no', false],
     '""' => ['', false],
-    'unparseable' => ['maybe', false],
     'null' => [null, false],
 ]);
+
+it('refuses to deduct on an unparseable allow_overdraft instead of reading it as off', function (): void {
+    config()->set('credits.allow_overdraft', 'maybe');
+    $user = User::query()->create(['name' => 'Ada']);
+
+    expect(fn (): Credit => app(ModifyCreditsAction::class)->execute($user, new CreditChangeData(amount: -50)))->toThrow(
+        InvalidConfigurationException::class,
+        'Configuration value [credits.allow_overdraft] must be a boolean (true/false, 1/0, on/off or yes/no), [maybe] given.',
+    )->and($user->creditsBalance())->toBe(0);
+});
