@@ -8,7 +8,7 @@
         "wallet",
         "balance"
     ],
-    "homepage": "https://github.com/roundly-consulting/credits-for-laravel",
+    "homepage": "https://roundly-consulting.com/open-source/docs/credits-for-laravel",
     "license": "MIT",
     "authors": [
         {
@@ -17,6 +17,9 @@
             "role": "Developer"
         }
     ],
+    "support": {
+        "docs": "https://roundly-consulting.com/open-source/docs/credits-for-laravel"
+    },
     "require": {
         "php": "^8.4",
         "ext-bcmath": "*",
