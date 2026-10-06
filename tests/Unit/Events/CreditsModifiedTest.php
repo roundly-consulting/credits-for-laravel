@@ -82,3 +82,55 @@ it('carries the exact running balance on consecutive changes', function (): void
 
     expect($balances)->toBe([100, 70, 10, 5]);
 });
+
+/**
+ * Listeners hear only changes that committed. The event used to fire inside setTo()'s own
+ * transaction and inside any host transaction, so a rolled-back change had already been
+ * announced (and a throwing listener rolled the change back).
+ */
+it('reaches no listener when the host transaction rolls back', function (): void {
+    $heard = [];
+    Event::listen(CreditsModified::class, function (CreditsModified $event) use (&$heard): void {
+        $heard[] = $event->balance;
+    });
+
+    $user = User::query()->create(['name' => 'Ada']);
+
+    expect(fn (): mixed => DB::transaction(function () use ($user): never {
+        $user->modifyCredits(10);
+
+        throw new RuntimeException('host rolls back');
+    }))->toThrow(RuntimeException::class, 'host rolls back')
+        ->and($heard)->toBe([])
+        ->and($user->credits()->count())->toBe(0);
+});
+
+it('dispatches a setTo change after its transaction has committed', function (): void {
+    $levels = [];
+    Event::listen(CreditsModified::class, function (CreditsModified $event) use (&$levels): void {
+        $levels[] = [$event->balance, DB::transactionLevel()];
+    });
+
+    $user = User::query()->create(['name' => 'Ada']);
+    $user->modifyCredits(10);
+    $user->setCreditsTo(50);
+
+    expect($levels)->toBe([[10, 0], [50, 0]]);
+});
+
+it('dispatches once a host transaction commits', function (): void {
+    $levels = [];
+    Event::listen(CreditsModified::class, function (CreditsModified $event) use (&$levels): void {
+        $levels[] = [$event->balance, DB::transactionLevel()];
+    });
+
+    $user = User::query()->create(['name' => 'Ada']);
+
+    DB::transaction(function () use ($user, &$levels): void {
+        $user->modifyCredits(7);
+
+        expect($levels)->toBe([]);
+    });
+
+    expect($levels)->toBe([[7, 0]]);
+});

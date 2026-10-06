@@ -13,6 +13,10 @@ All notable changes to `credits-for-laravel` are documented in this file. The fo
   `modifyCreditsMoney()` already throws for a single oversized amount). Callers used to see a
   `TypeError`, a capped total or a `QueryException`; catch `AmountOverflow` where you handle very
   large balances.
+- `CreditsModified` implements `ShouldDispatchAfterCommit`: inside `setCreditsTo()` or a host
+  `DB::transaction()` it reaches listeners only once the outermost transaction commits, and never
+  on a rollback. A listener that throws no longer rolls the change (or the host transaction)
+  back; if you relied on that, check before making the change instead.
 - Documentation: the supported databases are stated — MySQL and PostgreSQL, SQLite for tests. SQL
   Server is not supported.
 
@@ -37,6 +41,9 @@ All notable changes to `credits-for-laravel` are documented in this file. The fo
   `totalCreditsBalance($at)`, `Credits::balance()` / `total()`, `Credit::query()->upTo($at)`) is
   now compared as an instant. It used to be bound by its wall clock, so 11:30 in Bratislava
   counted a row written at 10:00 UTC, and the fake answered the opposite way.
+- A change that is rolled back — a host transaction around `modifyCredits()` that fails, or a
+  failed `setCreditsTo()` — no longer reaches `CreditsModified` listeners; the event used to fire
+  inside the still-open transaction.
 
 ## 1.0.1 - 2026-10-04
 
