@@ -28,9 +28,9 @@ use RoundlyConsulting\PackageToolkit\Support\Config;
  * grant on the fake can be spent on the fake. The overdraft guard still applies: a debit
  * the real manager would refuse throws InsufficientCreditsException here too, and is not
  * recorded. So does the ledger's int64 bound: a change whose resulting balance, a `setTo()`
- * whose delta, or a total that does not fit a 64-bit integer throws money's AmountOverflow —
- * the same refusal, worded the same, as the real ledger's — and a refused change is not
- * recorded.
+ * whose delta, or a balance or total that does not fit a 64-bit integer throws money's
+ * AmountOverflow — the same refusal, worded the same, as the real ledger's — and a refused
+ * change is not recorded.
  */
 final class CreditsFake extends CreditsManager
 {
@@ -48,12 +48,11 @@ final class CreditsFake extends CreditsManager
     {
         $bucket = $this->resolve($bucket);
 
-        $exact = Int64::sum(parent::balance($owner, $bucket, $at), ...$this->pending($owner, $at, static fn (string $row): bool => $row === $bucket));
-
         // Every change keeps the bucket inside int64; only a point-in-time read of a ledger
         // written out of order (a test that moved the clock back) can sum past it.
-        return Int64::toInt($exact) ?? throw new AmountOverflow(
-            "The credits balance of bucket [{$bucket}] is [{$exact}], which does not fit a 64-bit integer.",
+        return LedgerBounds::balance(
+            Int64::sum(parent::balance($owner, $bucket, $at), ...$this->pending($owner, $at, static fn (string $row): bool => $row === $bucket)),
+            $bucket,
         );
     }
 

@@ -10,6 +10,8 @@ use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Credits\Interfaces\Creditable;
 use RoundlyConsulting\Credits\Models\Credit;
 use RoundlyConsulting\Credits\Support\CreditsConfig;
+use RoundlyConsulting\Credits\Support\LedgerBounds;
+use RoundlyConsulting\Money\Exceptions\AmountOverflow;
 
 /**
  * One bucket's balance — the configured default unless named — optionally as of a point in
@@ -28,6 +30,7 @@ final readonly class GetCreditsBalanceAction
 
         return $this->sum(
             $this->baseQuery($creditable)->bucket($resolvedBucket),
+            $resolvedBucket,
             $at,
             $lockForUpdate,
         );
@@ -35,8 +38,10 @@ final readonly class GetCreditsBalanceAction
 
     /**
      * @param  Builder<Credit>  $query
+     *
+     * @throws AmountOverflow when a point-in-time sum does not fit int64
      */
-    private function sum(Builder $query, ?CarbonInterface $at, bool $lockForUpdate = false): int
+    private function sum(Builder $query, string $bucket, ?CarbonInterface $at, bool $lockForUpdate = false): int
     {
         $query = $query->when(
             value: ! is_null($at),
@@ -48,7 +53,10 @@ final readonly class GetCreditsBalanceAction
             return $this->sumLockedRows($query);
         }
 
-        return (int) $query->sum('amount');
+        // Exact, never cast: rows written out of `created_at` order can sum past int64 at `$at`.
+        $exact = LedgerBounds::exactSum($query) ?? throw LedgerBounds::balanceOverflow($bucket);
+
+        return LedgerBounds::balance($exact, $bucket);
     }
 
     /**

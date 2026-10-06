@@ -12,6 +12,10 @@ All notable changes to `credits-for-laravel` are documented in this file. The fo
   64-bit ledger now throws money's `RoundlyConsulting\Money\Exceptions\AmountOverflow`, as the
   real ledger does. A host test that overflowed under the fake used to get a `TypeError`; expect
   `AmountOverflow` instead.
+- A point-in-time balance read (`balance($at)`, `creditsBalance($at)`, `Credits::balance(at:)`)
+  that does not fit the signed 64-bit ledger now throws money's `AmountOverflow` instead of a
+  `QueryException` (SQLite) or a value capped at `PHP_INT_MAX` / `PHP_INT_MIN` (PostgreSQL,
+  MySQL).
 
 ### Fixed
 
@@ -25,6 +29,11 @@ All notable changes to `credits-for-laravel` are documented in this file. The fo
 - `Credits::fake()` applies a deduction of exactly `PHP_INT_MIN` (`Credits::modify()` with an
   overdraft allowed) like the real ledger: the balance becomes `PHP_INT_MIN` and `assertDeducted()`
   sees it. The fake used to throw a `TypeError` instead. Assertions by amount are unchanged.
+- A point-in-time balance over rows written out of `created_at` order (a backdated row, a test
+  that moved the clock back) can add up past int64 even though every stored balance fits. The
+  real ledger now checks the driver's exact sum, as `total()` does, and refuses it with the same
+  `AmountOverflow` message `Credits::fake()` uses. It used to throw a `QueryException` on SQLite
+  and silently return a capped `PHP_INT_MAX` / `PHP_INT_MIN` on PostgreSQL.
 
 ## 1.1.0 - 2026-10-06
 

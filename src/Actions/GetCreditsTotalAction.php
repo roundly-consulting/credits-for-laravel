@@ -7,7 +7,6 @@ namespace RoundlyConsulting\Credits\Actions;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\QueryException;
 use RoundlyConsulting\Credits\Interfaces\Creditable;
 use RoundlyConsulting\Credits\Models\Credit;
 use RoundlyConsulting\Credits\Support\LedgerBounds;
@@ -51,8 +50,7 @@ final readonly class GetCreditsTotalAction
     }
 
     /**
-     * The driver's raw sum — a `numeric` / `DECIMAL` string on pgsql / MySQL, an int on
-     * SQLite, which raises "integer overflow" itself — narrowed to an int only when it fits.
+     * The driver's exact sum, narrowed to an int only when it fits.
      *
      * @param  Builder<Credit>  $query
      * @param  array<int, string>|null  $buckets
@@ -61,17 +59,7 @@ final readonly class GetCreditsTotalAction
      */
     private function sum(Builder $query, ?array $buckets): int
     {
-        try {
-            $sum = $query->sum('amount');
-        } catch (QueryException $exception) {
-            if (str_contains($exception->getMessage(), 'integer overflow')) {
-                throw LedgerBounds::totalOverflow($buckets);
-            }
-
-            throw $exception;
-        }
-
-        $exact = is_float($sum) ? sprintf('%.0f', $sum) : (string) $sum;
+        $exact = LedgerBounds::exactSum($query) ?? throw LedgerBounds::totalOverflow($buckets);
 
         return LedgerBounds::total($exact, $buckets);
     }
