@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use RoundlyConsulting\Credits\Exceptions\InsufficientCreditsException;
+use RoundlyConsulting\Credits\Models\Credit;
 use RoundlyConsulting\Credits\Tests\Fixtures\CustomCredit;
 use RoundlyConsulting\Credits\Tests\Fixtures\SwappedCreditTestCase;
 use RoundlyConsulting\Credits\Tests\Fixtures\User;
@@ -63,3 +64,12 @@ it('reads the balance through the swapped model under the overdraft guard', func
 // defaults to the packaged model — is pinned once in tests/ArchTest.php by
 // `ArchPresets::swappableModelsAreNotFinal()`. It deliberately does NOT live here: that
 // preset asserts the config *default*, which this directory has swapped away.
+
+it('builds the swapped model through the factory', function (): void {
+    $user = User::query()->create(['name' => 'Ada']);
+
+    expect(Credit::factory()->for($user, 'creditable')->create(['amount' => 5]))->toBeInstanceOf(CustomCredit::class)
+        ->and(Credit::factory()->for($user, 'creditable')->create(['amount' => 5])::class)->toBe(CustomCredit::class)
+        ->and(CustomCredit::factory()->for($user, 'creditable')->create(['amount' => 5])::class)->toBe(CustomCredit::class)
+        ->and($user->creditsBalance())->toBe(15);
+});

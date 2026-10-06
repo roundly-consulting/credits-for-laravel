@@ -63,6 +63,9 @@ All notable changes to `credits-for-laravel` are documented in this file. The fo
   available". The fake's exception matches the real one.
 - `Credits::fake()` compares a point-in-time `$at` at second precision, like the real ledger's
   `created_at`: a change made later in the same second now counts at `$at` on the fake too.
+- `Credit::factory()` builds rows in `credits.default_bucket` (it used the migration's `'default'`
+  column default) and builds the configured `credits.model`, so a host subclass's `factory()`
+  returns the subclass instead of the packaged `Credit`.
 
 ## 1.0.1 - 2026-10-04
 

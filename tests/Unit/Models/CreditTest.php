@@ -51,3 +51,13 @@ it('builds ledger rows through the packaged factory', function (): void {
     expect($credit)->toBeInstanceOf(Credit::class)
         ->and($user->creditsBalance())->toBe(40);
 });
+
+it('builds factory rows in the configured default bucket', function (): void {
+    config()->set('credits.default_bucket', 'main');
+    $user = User::query()->create(['name' => 'Ada']);
+
+    $credit = Credit::factory()->for($user, 'creditable')->create(['amount' => 40]);
+
+    expect($credit->bucket)->toBe('main')
+        ->and($user->creditsBalance())->toBe(40);
+});
