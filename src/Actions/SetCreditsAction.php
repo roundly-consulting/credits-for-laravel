@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Credits\DataTransferObjects\CreditChangeData;
 use RoundlyConsulting\Credits\Interfaces\Creditable;
 use RoundlyConsulting\Credits\Models\Credit;
+use RoundlyConsulting\Credits\Support\LedgerConnection;
 use RoundlyConsulting\Credits\Support\OwnerLock;
 
 /**
@@ -39,7 +40,7 @@ final readonly class SetCreditsAction
         ?string $bucket = null,
     ): ?Credit {
         /** @var Credit|null $credit */
-        $credit = $creditable->getConnection()->transaction(function () use ($creditable, $amount, $description, $meta, $allowOverdraft, $bucket): ?Credit {
+        $credit = LedgerConnection::of($creditable)->transaction(function () use ($creditable, $amount, $description, $meta, $allowOverdraft, $bucket): ?Credit {
             $this->lock->acquire($creditable);
 
             $delta = $amount - $this->balance->execute($creditable, lockForUpdate: true, bucket: $bucket);

@@ -6,6 +6,16 @@ All notable changes to `credits-for-laravel` are documented in this file. The fo
 
 ## Unreleased
 
+### Fixed
+
+- One ledger connection: an owner on another database connection, or a `credits.model` with its
+  own `$connection`, now reads its balance and total (`creditsBalance()`, `totalCreditsBalance()`,
+  `Credits::balance()` / `total()`) from the connection its ledger rows are written to, and the
+  owner lock and the transaction around a change run there too. Reads used to go to the default
+  connection, so such an owner saw a balance of 0 and the overdraft guard could decide on another
+  database's rows; a ledger model on its own connection was written outside the transaction that
+  held the lock.
+
 ## 1.0.1 - 2026-10-04
 
 ### Changed

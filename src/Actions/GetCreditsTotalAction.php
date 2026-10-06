@@ -7,7 +7,6 @@ namespace RoundlyConsulting\Credits\Actions;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Credits\Interfaces\Creditable;
-use RoundlyConsulting\Credits\Support\CreditModel;
 
 /**
  * An owner's balance summed across several named buckets, or across every bucket it owns.
@@ -22,7 +21,8 @@ final readonly class GetCreditsTotalAction
      */
     public function execute(Model&Creditable $creditable, ?array $buckets = null, ?CarbonInterface $at = null): int
     {
-        $query = CreditModel::class()::query()->whereMorphedTo('creditable', $creditable);
+        // Through the owner's relation: the same connection and model class as the write.
+        $query = $creditable->credits()->getQuery();
 
         if ($buckets !== null) {
             $buckets = array_values(array_unique($buckets));

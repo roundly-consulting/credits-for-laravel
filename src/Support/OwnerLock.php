@@ -12,7 +12,8 @@ use RoundlyConsulting\Credits\Interfaces\Creditable;
  * Serialises every balance-changing write of one owner, on every isolation level.
  *
  * Each write bumps the owner's row in `credit_locks` with an UPDATE (inserting the row on the
- * owner's first write) inside the transaction that reads the balance and writes the ledger.
+ * owner's first write) inside the transaction that reads the balance and writes the ledger —
+ * on the ledger's connection ({@see LedgerConnection}), where the migration puts the table.
  * Merely *locking* a row (`SELECT … FOR UPDATE` on the owner, as this used to) is not enough:
  * under REPEATABLE READ the transaction's snapshot is taken at its first statement, before
  * the lock wait, so a waiter reads the balance from before the racing write and misses the
@@ -42,7 +43,7 @@ final class OwnerLock
 
     public function acquire(Model&Creditable $creditable): void
     {
-        $connection = $creditable->getConnection();
+        $connection = LedgerConnection::of($creditable);
         $type = $creditable->getMorphClass();
         $id = $creditable->getKey();
 

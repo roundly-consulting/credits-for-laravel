@@ -11,15 +11,17 @@ use RoundlyConsulting\Credits\Exceptions\InsufficientCreditsException;
 use RoundlyConsulting\Credits\Interfaces\Creditable;
 use RoundlyConsulting\Credits\Models\Credit;
 use RoundlyConsulting\Credits\Support\CreditsConfig;
+use RoundlyConsulting\Credits\Support\LedgerConnection;
 use RoundlyConsulting\Credits\Support\OwnerLock;
 use RoundlyConsulting\PackageToolkit\Support\Config;
 
 /**
  * Append one signed ledger row and dispatch CreditsModified. Every change takes the owner
- * lock first and reads the bucket's balance under it, in one transaction with the write, so
- * racing changes of one owner serialise on every isolation level: a debit is guarded — unless
- * an overdraft is allowed, it may not take the bucket below `credits.minimum_balance` — and
- * the event carries the exact balance this change produced.
+ * lock first and reads the bucket's balance under it, in one transaction with the write, all
+ * on the ledger's connection ({@see LedgerConnection}), so racing changes of one owner
+ * serialise on every isolation level: a debit is guarded — unless an overdraft is allowed, it
+ * may not take the bucket below `credits.minimum_balance` — and the event carries the exact
+ * balance this change produced.
  */
 final readonly class ModifyCreditsAction
 {
@@ -33,7 +35,7 @@ final readonly class ModifyCreditsAction
         $balance = 0;
 
         /** @var Credit $credit */
-        $credit = $creditable->getConnection()->transaction(function () use ($creditable, $data, &$balance): Credit {
+        $credit = LedgerConnection::of($creditable)->transaction(function () use ($creditable, $data, &$balance): Credit {
             $this->lock->acquire($creditable);
 
             $available = $this->balance->execute(

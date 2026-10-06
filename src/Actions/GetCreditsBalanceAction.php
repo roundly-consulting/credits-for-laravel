@@ -9,7 +9,6 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Credits\Interfaces\Creditable;
 use RoundlyConsulting\Credits\Models\Credit;
-use RoundlyConsulting\Credits\Support\CreditModel;
 use RoundlyConsulting\Credits\Support\CreditsConfig;
 
 /**
@@ -72,10 +71,13 @@ final readonly class GetCreditsBalanceAction
     }
 
     /**
+     * The owner's ledger rows through its own relation, so the read runs on the same
+     * connection and model class as the write (see Support\LedgerConnection).
+     *
      * @return Builder<Credit>
      */
     private function baseQuery(Model&Creditable $creditable): Builder
     {
-        return CreditModel::class()::query()->whereMorphedTo('creditable', $creditable);
+        return $creditable->credits()->getQuery();
     }
 }
