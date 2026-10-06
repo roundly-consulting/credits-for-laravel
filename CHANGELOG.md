@@ -6,6 +6,14 @@ All notable changes to `credits-for-laravel` are documented in this file. The fo
 
 ## Unreleased
 
+### Changed
+
+- A change, a `setTo()` delta or a cross-bucket total that does not fit the signed 64-bit ledger
+  now throws money's `RoundlyConsulting\Money\Exceptions\AmountOverflow` (the exception
+  `modifyCreditsMoney()` already throws for a single oversized amount). Callers used to see a
+  `TypeError`, a capped total or a `QueryException`; catch `AmountOverflow` where you handle very
+  large balances.
+
 ### Fixed
 
 - One ledger connection: an owner on another database connection, or a `credits.model` with its
@@ -15,6 +23,14 @@ All notable changes to `credits-for-laravel` are documented in this file. The fo
   connection, so such an owner saw a balance of 0 and the overdraft guard could decide on another
   database's rows; a ledger model on its own connection was written outside the transaction that
   held the lock.
+- A change whose resulting bucket balance does not fit the signed 64-bit ledger
+  (`modifyCredits()`, `modifyCreditsMoney()`, `add()` / `deduct()`) or a `setCreditsTo()` whose
+  delta does not fit is refused with `AmountOverflow` before anything is written. The row used to
+  be committed and the call then failed with a `TypeError` (or, at the bottom of the range,
+  succeeded with a wrong balance), leaving a bucket every later debit refused.
+- A total across buckets past int64 (`totalCreditsBalance()`, `creditsBalanceForBuckets()`,
+  `Credits::total()`, `buckets([...])->balance()`) throws `AmountOverflow` instead of returning
+  `PHP_INT_MAX` (PostgreSQL / MySQL) or throwing a `QueryException` (SQLite).
 
 ## 1.0.1 - 2026-10-04
 

@@ -11,8 +11,10 @@ use RoundlyConsulting\Credits\Exceptions\InsufficientCreditsException;
 use RoundlyConsulting\Credits\Interfaces\Creditable;
 use RoundlyConsulting\Credits\Models\Credit;
 use RoundlyConsulting\Credits\Support\CreditsConfig;
+use RoundlyConsulting\Credits\Support\Int64;
 use RoundlyConsulting\Credits\Support\LedgerConnection;
 use RoundlyConsulting\Credits\Support\OwnerLock;
+use RoundlyConsulting\Money\Exceptions\AmountOverflow;
 use RoundlyConsulting\PackageToolkit\Support\Config;
 
 /**
@@ -46,10 +48,10 @@ final readonly class ModifyCreditsAction
 
             $this->guardAgainstOverdraft($creditable, $data, $available);
 
+            $balance = $this->resultingBalance($data, $available);
+
             /** @var Credit $credit */
             $credit = $creditable->credits()->create($data->toAttributes());
-
-            $balance = $available + $data->amount;
 
             return $credit;
         }, OwnerLock::ATTEMPTS);
@@ -57,6 +59,21 @@ final readonly class ModifyCreditsAction
         CreditsModified::dispatch($creditable, $credit, $balance);
 
         return $credit;
+    }
+
+    /**
+     * The bucket's balance after this change, checked before the row is written: a result
+     * outside the signed 64-bit ledger is refused, so nothing is written.
+     *
+     * @throws AmountOverflow
+     */
+    private function resultingBalance(CreditChangeData $data, int $available): int
+    {
+        $exact = Int64::add($available, $data->amount);
+
+        return Int64::toInt($exact) ?? throw new AmountOverflow(
+            "The credits balance of bucket [{$data->resolvedBucket()}] would be [{$exact}] after this change, which does not fit a 64-bit integer; nothing was written.",
+        );
     }
 
     private function guardAgainstOverdraft(Model&Creditable $creditable, CreditChangeData $data, int $available): void

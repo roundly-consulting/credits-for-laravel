@@ -5,8 +5,13 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Credits\Actions;
 
 use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\QueryException;
 use RoundlyConsulting\Credits\Interfaces\Creditable;
+use RoundlyConsulting\Credits\Models\Credit;
+use RoundlyConsulting\Credits\Support\Int64;
+use RoundlyConsulting\Money\Exceptions\AmountOverflow;
 
 /**
  * An owner's balance summed across several named buckets, or across every bucket it owns.
@@ -15,9 +20,13 @@ final readonly class GetCreditsTotalAction
 {
     /**
      * `$buckets` null sums every bucket; a list sums those (names de-duplicated, an empty
-     * list is zero). `$at` limits the sum to rows recorded up to that moment.
+     * list is zero). `$at` limits the sum to rows recorded up to that moment. Each bucket fits
+     * the signed 64-bit ledger, but a sum of several may not: that throws AmountOverflow
+     * rather than a saturated or wrapped number.
      *
      * @param  array<int, string>|null  $buckets
+     *
+     * @throws AmountOverflow
      */
     public function execute(Model&Creditable $creditable, ?array $buckets = null, ?CarbonInterface $at = null): int
     {
@@ -38,6 +47,37 @@ final readonly class GetCreditsTotalAction
             $query->upTo($at);
         }
 
-        return (int) $query->sum('amount');
+        return $this->sum($query, $buckets);
+    }
+
+    /**
+     * The driver's raw sum — a `numeric` / `DECIMAL` string on pgsql / MySQL, an int on
+     * SQLite, which raises "integer overflow" itself — narrowed to an int only when it fits.
+     *
+     * @param  Builder<Credit>  $query
+     * @param  array<int, string>|null  $buckets
+     *
+     * @throws AmountOverflow
+     */
+    private function sum(Builder $query, ?array $buckets): int
+    {
+        $overflow = static fn (?string $total): AmountOverflow => new AmountOverflow(
+            'The credits total across '.($buckets === null ? 'every bucket' : 'buckets ['.implode(', ', $buckets).']')
+            .($total === null ? '' : " is [{$total}], which").' does not fit a 64-bit integer.',
+        );
+
+        try {
+            $sum = $query->sum('amount');
+        } catch (QueryException $exception) {
+            if (str_contains($exception->getMessage(), 'integer overflow')) {
+                throw $overflow(null);
+            }
+
+            throw $exception;
+        }
+
+        $exact = is_float($sum) ? sprintf('%.0f', $sum) : (string) $sum;
+
+        return Int64::toInt($exact) ?? throw $overflow($exact);
     }
 }
