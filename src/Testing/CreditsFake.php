@@ -34,7 +34,11 @@ use RoundlyConsulting\PackageToolkit\Support\Config;
  */
 final class CreditsFake extends CreditsManager
 {
-    /** @var list<array{kind: 'added'|'deducted'|'set', owner: Model, amount: int, bucket: string}> */
+    /**
+     * `amount` is signed as applied — a deduction is negative — and the target for a set.
+     *
+     * @var list<array{kind: 'added'|'deducted'|'set', owner: Model, amount: int, bucket: string}>
+     */
     private array $recorded = [];
 
     /** @var list<array{owner: Model, bucket: string, amount: int, at: CarbonImmutable}> */
@@ -78,7 +82,8 @@ final class CreditsFake extends CreditsManager
     {
         $credit = $this->apply($owner, $data);
 
-        $this->record($data->amount < 0 ? 'deducted' : 'added', $owner, abs($data->amount), $data->resolvedBucket());
+        // Signed: the magnitude of PHP_INT_MIN is not an int.
+        $this->record($data->amount < 0 ? 'deducted' : 'added', $owner, $data->amount, $data->resolvedBucket());
 
         return $credit;
     }
@@ -234,7 +239,8 @@ final class CreditsFake extends CreditsManager
         foreach ($this->recorded as $entry) {
             if ($entry['kind'] === $kind
                 && $entry['owner']->is($owner)
-                && ($amount === null || $entry['amount'] === $amount)
+                // A deduction's `$amount` is positive, as passed to `deduct()`; compared signed.
+                && ($amount === null || $entry['amount'] === ($kind === 'deducted' ? -$amount : $amount))
                 && ($bucket === null || $entry['bucket'] === $bucket)) {
                 return true;
             }

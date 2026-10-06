@@ -22,6 +22,9 @@ All notable changes to `credits-for-laravel` are documented in this file. The fo
   `balance()` and `total()` now add the fake's changes exactly, so a total across buckets past
   int64 throws `AmountOverflow`. The fake used to record the change, and the next balance read
   failed with a `TypeError`.
+- `Credits::fake()` applies a deduction of exactly `PHP_INT_MIN` (`Credits::modify()` with an
+  overdraft allowed) like the real ledger: the balance becomes `PHP_INT_MIN` and `assertDeducted()`
+  sees it. The fake used to throw a `TypeError` instead. Assertions by amount are unchanged.
 
 ## 1.1.0 - 2026-10-06
 

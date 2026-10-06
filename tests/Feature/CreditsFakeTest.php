@@ -357,3 +357,50 @@ it('throws AmountOverflow for a fake balance that does not fit int64', function 
         ->and(fn (): int => $this->user->creditsBalance(Carbon::parse('2026-10-06 10:00:01', 'UTC')))
         ->toThrow(AmountOverflow::class, 'The credits balance of bucket [default] is [9223372036854775817], which does not fit a 64-bit integer.');
 });
+
+/**
+ * PHP_INT_MIN is the one int whose magnitude is not an int — abs() makes it a float. The real
+ * ledger writes that deduction (the bucket ends at PHP_INT_MIN); the fake recorded it through
+ * abs() and threw a TypeError instead of applying it.
+ */
+it('applies a deduction of exactly PHP_INT_MIN like the real ledger', function (bool $onTheFake): void {
+    if ($onTheFake) {
+        Credits::fake();
+    }
+
+    $credit = Credits::modify($this->user, new CreditChangeData(amount: PHP_INT_MIN, allowOverdraft: true));
+
+    expect($credit->amount)->toBe(PHP_INT_MIN)
+        ->and(Credits::balance($this->user))->toBe(PHP_INT_MIN)
+        ->and($this->user->creditsBalance())->toBe(PHP_INT_MIN)
+        ->and(Credit::query()->count())->toBe($onTheFake ? 0 : 1);
+})->with(['on the real ledger' => false, 'on the fake' => true]);
+
+it('records a deduction of exactly PHP_INT_MIN on the fake as a deduction', function (): void {
+    $fake = Credits::fake();
+
+    Credits::modify($this->user, new CreditChangeData(amount: PHP_INT_MIN, allowOverdraft: true, bucket: 'points'));
+
+    $fake->assertDeducted($this->user);
+    $fake->assertDeducted($this->user, bucket: 'points');
+    $fake->assertNothingAdded();
+    $fake->assertNothingSet();
+
+    expect(fn () => $fake->assertDeducted($this->user, PHP_INT_MAX))->toThrow(AssertionFailedError::class, 'amount '.PHP_INT_MAX)
+        ->and(fn () => $fake->assertDeducted($this->user, bucket: 'default'))->toThrow(AssertionFailedError::class)
+        ->and(fn () => $fake->assertNothingDeducted())->toThrow(AssertionFailedError::class)
+        ->and(fn () => $fake->assertNothingModified())->toThrow(AssertionFailedError::class);
+});
+
+it('matches a deduction by its positive amount only, as before', function (): void {
+    $fake = Credits::fake();
+
+    Credits::for($this->user)->allowOverdraft()->deduct(30);
+    Credits::for($this->user)->add(30);
+
+    $fake->assertDeducted($this->user, 30);
+    $fake->assertAdded($this->user, 30);
+
+    expect(fn () => $fake->assertDeducted($this->user, -30))->toThrow(AssertionFailedError::class, 'amount -30')
+        ->and(fn () => $fake->assertAdded($this->user, -30))->toThrow(AssertionFailedError::class, 'amount -30');
+});
