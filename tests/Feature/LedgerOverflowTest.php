@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Event;
+use RoundlyConsulting\Credits\Actions\GetCreditsBalanceAction;
 use RoundlyConsulting\Credits\Events\CreditsModified;
 use RoundlyConsulting\Credits\Facades\Credits;
+use RoundlyConsulting\Credits\Models\Credit;
 use RoundlyConsulting\Credits\Tests\Fixtures\User;
 use RoundlyConsulting\Money\Exceptions\AmountOverflow;
 use RoundlyConsulting\Money\Money;
@@ -113,3 +115,57 @@ it('refuses a point-in-time balance that overflows int64', function (string $led
         ->and($this->user->creditsBalance(Carbon::parse('2026-10-06 10:00:02', 'UTC')))->toBe(PHP_INT_MAX)
         ->and($this->user->creditsBalance())->toBe(PHP_INT_MAX);
 })->with(['the real ledger', 'rows on the real ledger, read through the fake', 'the fake']);
+
+/**
+ * The balance every change decides on is read under a row lock, so it cannot be an aggregate
+ * (postgres refuses `sum()` next to FOR UPDATE): the locked amounts are added up in PHP, in the
+ * order the engine returns them. That is not the order the changes kept inside int64, and a host
+ * may delete a row between two big ones — a plain `+` passed int64 on the way, became a float, and
+ * the int cast read PHP_INT_MIN: a debit was "insufficient", and an allowed overdraft or a
+ * `setTo()` was decided against that number. The locked sum is exact now.
+ */
+it('decides a change on the exact locked balance when the rows pass int64 on the way', function (Closure $change, int $amount, int $balance): void {
+    // Written directly, in an order no change keeps inside int64; they add up to PHP_INT_MAX.
+    foreach ([PHP_INT_MAX, 10, -10] as $row) {
+        Credit::factory()->for($this->user, 'creditable')->create(['amount' => $row]);
+    }
+
+    // Precondition: the engine returns them in that order, where a PHP running sum leaves int64.
+    expect($this->user->credits()->pluck('amount')->all())->toBe([PHP_INT_MAX, 10, -10])
+        ->and($this->user->credits()->pluck('amount')->sum())->toBeFloat();
+
+    Event::fake([CreditsModified::class]);
+
+    expect($change($this->user)->amount)->toBe($amount)
+        ->and(app(GetCreditsBalanceAction::class)->execute($this->user, lockForUpdate: true))->toBe($balance);
+
+    Event::assertDispatched(CreditsModified::class, static fn (CreditsModified $event): bool => $event->balance === $balance);
+})->with([
+    'a guarded debit' => [fn (User $user): Credit => $user->modifyCredits(-1), -1, PHP_INT_MAX - 1],
+    'a debit with an overdraft allowed' => [fn (User $user): Credit => $user->modifyCredits(-1, allowOverdraft: true), -1, PHP_INT_MAX - 1],
+    'setTo' => [fn (User $user): ?Credit => $user->setCreditsTo(5), 5 - PHP_INT_MAX, 5],
+]);
+
+it('refuses a change when the locked balance does not fit int64 and writes nothing', function (Closure $change): void {
+    $this->user->modifyCredits(PHP_INT_MAX);
+    $deleted = $this->user->modifyCredits(-10);
+    $this->user->modifyCredits(10);
+    // A host removes a ledger row between two big ones: PHP_INT_MAX + 10 is left behind.
+    $deleted->delete();
+    Event::fake([CreditsModified::class]);
+
+    $message = 'The credits balance of bucket [default] is [9223372036854775817], which does not fit a 64-bit integer.';
+
+    expect(fn (): mixed => $change($this->user))->toThrow(AmountOverflow::class, $message)
+        ->and(fn (): int => app(GetCreditsBalanceAction::class)->execute($this->user, lockForUpdate: true))
+        ->toThrow(AmountOverflow::class, $message)
+        ->and($this->user->credits()->withTrashed()->count())->toBe(3);
+
+    Event::assertNotDispatched(CreditsModified::class);
+})->with([
+    'a guarded debit' => [fn (User $user): Credit => $user->modifyCredits(-1)],
+    'a debit with an overdraft allowed' => [fn (User $user): Credit => $user->modifyCredits(-1, allowOverdraft: true)],
+    'a grant' => [fn (User $user): Credit => $user->modifyCredits(5)],
+    'setTo' => [fn (User $user): ?Credit => $user->setCreditsTo(0, allowOverdraft: true)],
+    'through the facade' => [fn (User $user): Credit => Credits::for($user)->deduct(1)],
+]);

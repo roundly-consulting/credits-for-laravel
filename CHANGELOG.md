@@ -34,6 +34,15 @@ All notable changes to `credits-for-laravel` are documented in this file. The fo
   real ledger now checks the driver's exact sum, as `total()` does, and refuses it with the same
   `AmountOverflow` message `Credits::fake()` uses. It used to throw a `QueryException` on SQLite
   and silently return a capped `PHP_INT_MAX` / `PHP_INT_MIN` on PostgreSQL.
+- The locked balance every change decides on (`modifyCredits()`, `setCreditsTo()`,
+  `Credits::modify()` / `setTo()`, `add()` / `deduct()`) is now summed exactly. Its rows were added
+  up in PHP in the order the engine returned them, so a running total could pass int64 on the way
+  (rows returned in a different order than written, or a ledger row deleted between two big ones)
+  and the change was decided against a wrong balance: a debit reported "only
+  -9223372036854775808 are available", and an allowed overdraft or a `setTo()` used that number.
+  A locked balance that does not fit int64 now throws `AmountOverflow` worded like the
+  `balance()` refusal ("The credits balance of bucket [default] is [...], which does not fit a
+  64-bit integer."), and nothing is written.
 
 ## 1.1.0 - 2026-10-06
 

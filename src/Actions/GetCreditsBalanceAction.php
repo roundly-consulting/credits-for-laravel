@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Credits\Interfaces\Creditable;
 use RoundlyConsulting\Credits\Models\Credit;
 use RoundlyConsulting\Credits\Support\CreditsConfig;
+use RoundlyConsulting\Credits\Support\Int64;
 use RoundlyConsulting\Credits\Support\LedgerBounds;
 use RoundlyConsulting\Money\Exceptions\AmountOverflow;
 
@@ -39,7 +40,7 @@ final readonly class GetCreditsBalanceAction
     /**
      * @param  Builder<Credit>  $query
      *
-     * @throws AmountOverflow when a point-in-time sum does not fit int64
+     * @throws AmountOverflow when the sum does not fit int64
      */
     private function sum(Builder $query, string $bucket, ?CarbonInterface $at, bool $lockForUpdate = false): int
     {
@@ -50,7 +51,7 @@ final readonly class GetCreditsBalanceAction
         );
 
         if ($lockForUpdate) {
-            return $this->sumLockedRows($query);
+            return $this->sumLockedRows($query, $bucket);
         }
 
         // Exact, never cast: rows written out of `created_at` order can sum past int64 at `$at`.
@@ -72,11 +73,18 @@ final readonly class GetCreditsBalanceAction
      * enclosing transaction (never released between the read and the ledger write), so a
      * racing debit blocks on it instead of deciding against a stale balance.
      *
+     * The amounts are added exactly, never with PHP's `+`: the rows come back in the engine's
+     * order, not the order the changes kept inside int64 (and a host may have deleted a row
+     * between two big ones), so a running sum can pass int64 on the way to a balance that
+     * fits — PHP turns it into a float, and the cast read a wrong balance.
+     *
      * @param  Builder<Credit>  $query
+     *
+     * @throws AmountOverflow when the locked rows do not add up to an int64
      */
-    private function sumLockedRows(Builder $query): int
+    private function sumLockedRows(Builder $query, string $bucket): int
     {
-        return (int) $query->lockForUpdate()->pluck('amount')->sum();
+        return LedgerBounds::balance(Int64::sum(...$query->lockForUpdate()->pluck('amount')->all()), $bucket);
     }
 
     /**
