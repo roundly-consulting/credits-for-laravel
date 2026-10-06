@@ -10,6 +10,13 @@ it('adds and subtracts exactly past the int64 range', function (): void {
         ->and(Int64::add(40, -50))->toBe('-10');
 });
 
+it('sums any number of ints exactly past the int64 range', function (): void {
+    expect(Int64::sum())->toBe('0')
+        ->and(Int64::sum(7))->toBe('7')
+        ->and(Int64::sum(PHP_INT_MAX, PHP_INT_MAX, -5))->toBe('18446744073709551609')
+        ->and(Int64::sum(PHP_INT_MIN, -1))->toBe('-9223372036854775809');
+});
+
 it('narrows an integer string to an int only when it fits', function (string $integer, ?int $int): void {
     expect(Int64::toInt($integer))->toBe($int);
 })->with([

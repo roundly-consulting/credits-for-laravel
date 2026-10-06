@@ -14,6 +14,9 @@ use RoundlyConsulting\Credits\Exceptions\InsufficientCreditsException;
 use RoundlyConsulting\Credits\Interfaces\Creditable;
 use RoundlyConsulting\Credits\Models\Credit;
 use RoundlyConsulting\Credits\Support\CreditsConfig;
+use RoundlyConsulting\Credits\Support\Int64;
+use RoundlyConsulting\Credits\Support\LedgerBounds;
+use RoundlyConsulting\Money\Exceptions\AmountOverflow;
 use RoundlyConsulting\PackageToolkit\Support\Config;
 
 /**
@@ -24,6 +27,9 @@ use RoundlyConsulting\PackageToolkit\Support\Config;
  * Changes land in an in-memory ledger, and balances add it to the owner's real rows, so a
  * grant on the fake can be spent on the fake. The overdraft guard still applies: a debit
  * the real manager would refuse throws InsufficientCreditsException here too, and is not
+ * recorded. So does the ledger's int64 bound: a change whose resulting balance, a `setTo()`
+ * whose delta, or a total that does not fit a 64-bit integer throws money's AmountOverflow —
+ * the same refusal, worded the same, as the real ledger's — and a refused change is not
  * recorded.
  */
 final class CreditsFake extends CreditsManager
@@ -38,7 +44,13 @@ final class CreditsFake extends CreditsManager
     {
         $bucket = $this->resolve($bucket);
 
-        return parent::balance($owner, $bucket, $at) + $this->pending($owner, $at, static fn (string $row): bool => $row === $bucket);
+        $exact = Int64::sum(parent::balance($owner, $bucket, $at), ...$this->pending($owner, $at, static fn (string $row): bool => $row === $bucket));
+
+        // Every change keeps the bucket inside int64; only a point-in-time read of a ledger
+        // written out of order (a test that moved the clock back) can sum past it.
+        return Int64::toInt($exact) ?? throw new AmountOverflow(
+            "The credits balance of bucket [{$bucket}] is [{$exact}], which does not fit a 64-bit integer.",
+        );
     }
 
     /**
@@ -50,8 +62,13 @@ final class CreditsFake extends CreditsManager
             return 0;
         }
 
-        return parent::total($owner, $buckets, $at)
-            + $this->pending($owner, $at, static fn (string $row): bool => $buckets === null || in_array($row, $buckets, true));
+        // De-duplicated like the real total, so a refusal names the same buckets.
+        $buckets = $buckets === null ? null : array_values(array_unique($buckets));
+
+        return LedgerBounds::total(Int64::sum(
+            parent::total($owner, $buckets, $at),
+            ...$this->pending($owner, $at, static fn (string $row): bool => $buckets === null || in_array($row, $buckets, true)),
+        ), $buckets);
     }
 
     /**
@@ -80,7 +97,7 @@ final class CreditsFake extends CreditsManager
         ?string $bucket = null,
     ): ?Credit {
         $data = new CreditChangeData(
-            amount: $amount - $this->balance($owner, $bucket),
+            amount: LedgerBounds::delta($amount, $this->balance($owner, $bucket), $this->resolve($bucket)),
             description: $description,
             meta: $meta,
             allowOverdraft: $allowOverdraft,
@@ -152,22 +169,26 @@ final class CreditsFake extends CreditsManager
     }
 
     /**
-     * The overdraft guard, against the fake's balance, then an in-memory ledger entry.
+     * The overdraft guard and the int64 bound, against the fake's balance and in the real
+     * ledger's order, then an in-memory ledger entry.
      *
      * @throws InsufficientCreditsException
+     * @throws AmountOverflow
      */
     private function apply(Model&Creditable $owner, CreditChangeData $data): Credit
     {
         $bucket = $data->resolvedBucket();
+        $available = $this->balance($owner, $bucket);
 
         if ($data->amount < 0 && ! $data->allowOverdraft && ! Config::boolean('credits.allow_overdraft')) {
-            $available = $this->balance($owner, $bucket);
             $minimum = CreditsConfig::minimumBalance();
 
             if ($available + $data->amount < $minimum) {
                 throw new InsufficientCreditsException(creditable: $owner, requested: $data->amount, available: $available, minimum: $minimum);
             }
         }
+
+        LedgerBounds::balanceAfter($available, $data->amount, $bucket);
 
         // Stamped to the second, like the real `created_at`.
         $this->ledger[] = ['owner' => $owner, 'bucket' => $bucket, 'amount' => $data->amount, 'at' => CarbonImmutable::now()->startOfSecond()];
@@ -187,21 +208,25 @@ final class CreditsFake extends CreditsManager
     }
 
     /**
+     * The owner's in-memory amounts, unsummed: several can add up past int64, so the caller
+     * adds them exactly.
+     *
      * @param  callable(string): bool  $inBucket
+     * @return list<int>
      */
-    private function pending(Model $owner, ?CarbonInterface $at, callable $inBucket): int
+    private function pending(Model $owner, ?CarbonInterface $at, callable $inBucket): array
     {
-        $sum = 0;
+        $amounts = [];
         // The real ledger stores `created_at` and binds `$at` to the second.
         $upTo = $at === null ? null : CarbonImmutable::instance($at)->startOfSecond();
 
         foreach ($this->ledger as $row) {
             if ($row['owner']->is($owner) && $inBucket($row['bucket']) && ($upTo === null || $row['at']->lessThanOrEqualTo($upTo))) {
-                $sum += $row['amount'];
+                $amounts[] = $row['amount'];
             }
         }
 
-        return $sum;
+        return $amounts;
     }
 
     private function matches(string $kind, Model $owner, ?int $amount, ?string $bucket): bool

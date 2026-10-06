@@ -6,6 +6,23 @@ All notable changes to `credits-for-laravel` are documented in this file. The fo
 
 ## Unreleased
 
+### Changed
+
+- Under `Credits::fake()`, a change, a `setTo()` delta or a total that does not fit the signed
+  64-bit ledger now throws money's `RoundlyConsulting\Money\Exceptions\AmountOverflow`, as the
+  real ledger does. A host test that overflowed under the fake used to get a `TypeError`; expect
+  `AmountOverflow` instead.
+
+### Fixed
+
+- `Credits::fake()` refuses an int64 overflow exactly like the real ledger. A change whose
+  resulting bucket balance does not fit (`add()` / `deduct()`, `modifyCredits()`,
+  `modifyCreditsMoney()`, `Credits::modify()`), or a `setTo()` / `setCreditsTo()` whose delta
+  does not fit, throws `AmountOverflow` with the real ledger's message and is not recorded.
+  `balance()` and `total()` now add the fake's changes exactly, so a total across buckets past
+  int64 throws `AmountOverflow`. The fake used to record the change, and the next balance read
+  failed with a `TypeError`.
+
 ## 1.1.0 - 2026-10-06
 
 ### Added

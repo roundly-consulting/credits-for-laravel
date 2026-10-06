@@ -9,7 +9,7 @@ use RoundlyConsulting\Credits\DataTransferObjects\CreditChangeData;
 use RoundlyConsulting\Credits\Interfaces\Creditable;
 use RoundlyConsulting\Credits\Models\Credit;
 use RoundlyConsulting\Credits\Support\CreditsConfig;
-use RoundlyConsulting\Credits\Support\Int64;
+use RoundlyConsulting\Credits\Support\LedgerBounds;
 use RoundlyConsulting\Credits\Support\LedgerConnection;
 use RoundlyConsulting\Credits\Support\OwnerLock;
 use RoundlyConsulting\Money\Exceptions\AmountOverflow;
@@ -49,14 +49,11 @@ final readonly class SetCreditsAction
         $credit = LedgerConnection::of($creditable)->transaction(function () use ($creditable, $amount, $description, $meta, $allowOverdraft, $bucket): ?Credit {
             $this->lock->acquire($creditable);
 
-            $exact = Int64::subtract($amount, $this->balance->execute($creditable, lockForUpdate: true, bucket: $bucket));
-
-            $delta = Int64::toInt($exact) ?? throw new AmountOverflow(sprintf(
-                'Setting the credits balance of bucket [%s] to [%d] needs a change of [%s], which does not fit a 64-bit integer; nothing was written.',
-                $bucket ?? CreditsConfig::defaultBucket(),
+            $delta = LedgerBounds::delta(
                 $amount,
-                $exact,
-            ));
+                $this->balance->execute($creditable, lockForUpdate: true, bucket: $bucket),
+                $bucket ?? CreditsConfig::defaultBucket(),
+            );
 
             if ($delta === 0) {
                 return null;

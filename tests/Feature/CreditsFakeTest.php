@@ -14,6 +14,7 @@ use RoundlyConsulting\Credits\Facades\Credits;
 use RoundlyConsulting\Credits\Models\Credit;
 use RoundlyConsulting\Credits\Testing\CreditsFake;
 use RoundlyConsulting\Credits\Tests\Fixtures\User;
+use RoundlyConsulting\Money\Exceptions\AmountOverflow;
 use RoundlyConsulting\Money\Money;
 
 beforeEach(function (): void {
@@ -263,3 +264,96 @@ it('compares a point in time at second precision, like the real ledger', functio
         ->and($this->user->totalCreditsBalance($at))->toBe(10)
         ->and($this->user->creditsBalance(Carbon::parse('2026-10-06 09:59:59.999999', 'UTC')))->toBe(0);
 })->with(['the real manager' => false, 'the fake' => true]);
+
+/**
+ * Runs `$seed` on the real ledger and then installs the fake, or installs the fake first and
+ * seeds that — the overflow cases below must hold over both.
+ */
+function fakeSeeded(bool $onTheFake, Closure $seed): CreditsFake
+{
+    $fake = $onTheFake ? Credits::fake() : null;
+    $seed();
+
+    return $fake ?? Credits::fake();
+}
+
+/**
+ * The real ledger refuses a change, a setTo() delta or a total outside int64 with money's
+ * AmountOverflow before anything is written (LedgerOverflowTest). The fake used to record the
+ * change anyway, and its next balance() failed with a TypeError on the float the sum became.
+ */
+it('refuses a change whose resulting balance overflows int64 on the fake, and records nothing', function (bool $onTheFake): void {
+    config()->set('credits.currencies', ['crypto' => 'ETH']);
+    $fake = fakeSeeded($onTheFake, fn (): Credit => $this->user->modifyCreditsMoney(Money::ofMajor('9', 'ETH'), bucket: 'crypto'));
+
+    expect(fn (): mixed => $this->user->modifyCreditsMoney(Money::ofMajor('1', 'ETH'), bucket: 'crypto'))
+        ->toThrow(AmountOverflow::class, 'The credits balance of bucket [crypto] would be [10000000000000000000] after this change, which does not fit a 64-bit integer; nothing was written.')
+        ->and(fn (): mixed => $this->user->modifyCredits(PHP_INT_MAX, bucket: 'crypto'))
+        ->toThrow(AmountOverflow::class, '[18223372036854775807]')
+        ->and($this->user->creditsBalance(bucket: 'crypto'))->toBe(9_000_000_000_000_000_000)
+        ->and(fn () => $fake->assertAdded($this->user, 1_000_000_000_000_000_000))->toThrow(AssertionFailedError::class)
+        ->and(fn () => $fake->assertAdded($this->user, PHP_INT_MAX))->toThrow(AssertionFailedError::class)
+        ->and(Credit::query()->count())->toBe($onTheFake ? 0 : 1);
+})->with(['seeded on the real ledger' => false, 'seeded on the fake' => true]);
+
+it('refuses an overdraft past the bottom of int64 on the fake, and records nothing', function (bool $onTheFake): void {
+    $fake = fakeSeeded($onTheFake, fn (): Credit => $this->user->modifyCredits(PHP_INT_MIN + 5, allowOverdraft: true));
+
+    expect(fn (): mixed => $this->user->modifyCredits(-10, allowOverdraft: true))
+        ->toThrow(AmountOverflow::class, 'The credits balance of bucket [default] would be [-9223372036854775813] after this change, which does not fit a 64-bit integer; nothing was written.')
+        ->and(fn (): mixed => Credits::for($this->user)->allowOverdraft()->deduct(10))
+        ->toThrow(AmountOverflow::class, '[-9223372036854775813]')
+        ->and($this->user->creditsBalance())->toBe(PHP_INT_MIN + 5)
+        ->and(fn () => $fake->assertDeducted($this->user, 10))->toThrow(AssertionFailedError::class);
+
+    $fake->assertNothingAdded();
+})->with(['seeded on the real ledger' => false, 'seeded on the fake' => true]);
+
+it('refuses a setTo whose delta overflows int64 on the fake, and records nothing', function (bool $onTheFake): void {
+    $fake = fakeSeeded($onTheFake, fn (): Credit => $this->user->modifyCredits(-10, allowOverdraft: true));
+
+    expect(fn (): mixed => $this->user->setCreditsTo(PHP_INT_MAX, allowOverdraft: true))
+        ->toThrow(AmountOverflow::class, 'Setting the credits balance of bucket [default] to [9223372036854775807] needs a change of [9223372036854775817], which does not fit a 64-bit integer; nothing was written.')
+        ->and($this->user->creditsBalance())->toBe(-10);
+
+    $fake->assertNothingSet();
+    $fake->assertNothingAdded();
+})->with(['seeded on the real ledger' => false, 'seeded on the fake' => true]);
+
+it('refuses a total across buckets that overflows int64 on the fake', function (int $each, string $total, bool $bothOnTheFake): void {
+    $fake = fakeSeeded($bothOnTheFake, fn (): Credit => $this->user->modifyCredits($each, allowOverdraft: true, bucket: 'a'));
+    $this->user->modifyCredits($each, allowOverdraft: true, bucket: 'b');
+
+    expect(fn (): mixed => $this->user->totalCreditsBalance())
+        ->toThrow(AmountOverflow::class, "The credits total across every bucket is [{$total}], which does not fit a 64-bit integer.")
+        ->and(fn (): mixed => Credits::total($this->user))->toThrow(AmountOverflow::class, "[{$total}]")
+        ->and(fn (): mixed => Credits::for($this->user)->buckets(['a', 'b', 'a'])->balance())
+        ->toThrow(AmountOverflow::class, "The credits total across buckets [a, b] is [{$total}], which does not fit a 64-bit integer.")
+        ->and(Credits::for($this->user)->buckets(['a'])->balance())->toBe($each)
+        ->and(Credits::total($this->user, ['b']))->toBe($each);
+
+    // Each bucket fits, so both changes are recorded; only their sum is refused.
+    $each > 0 ? $fake->assertAdded($this->user, $each, bucket: 'b') : $fake->assertDeducted($this->user, -$each, bucket: 'b');
+})->with([
+    'past the top' => [intdiv(PHP_INT_MAX, 2) + 1, '9223372036854775808'],
+    'past the bottom' => [intdiv(PHP_INT_MIN, 2) - 1, '-9223372036854775810'],
+])->with(['one bucket on the real ledger' => false, 'both on the fake' => true]);
+
+/**
+ * Every change keeps a bucket inside int64, but a point-in-time read of a ledger written out of
+ * order (a test that moved the clock back) can sum to more: that is AmountOverflow too, never a
+ * TypeError.
+ */
+it('throws AmountOverflow for a fake balance that does not fit int64', function (): void {
+    Credits::fake();
+    Carbon::setTestNow(Carbon::parse('2026-10-06 10:00:01', 'UTC'));
+    Credits::for($this->user)->add(PHP_INT_MAX);
+    Carbon::setTestNow(Carbon::parse('2026-10-06 10:00:02', 'UTC'));
+    Credits::for($this->user)->deduct(10);
+    Carbon::setTestNow(Carbon::parse('2026-10-06 10:00:00', 'UTC'));
+    Credits::for($this->user)->add(10);
+
+    expect($this->user->creditsBalance())->toBe(PHP_INT_MAX)
+        ->and(fn (): int => $this->user->creditsBalance(Carbon::parse('2026-10-06 10:00:01', 'UTC')))
+        ->toThrow(AmountOverflow::class, 'The credits balance of bucket [default] is [9223372036854775817], which does not fit a 64-bit integer.');
+});

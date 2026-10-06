@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\QueryException;
 use RoundlyConsulting\Credits\Interfaces\Creditable;
 use RoundlyConsulting\Credits\Models\Credit;
-use RoundlyConsulting\Credits\Support\Int64;
+use RoundlyConsulting\Credits\Support\LedgerBounds;
 use RoundlyConsulting\Money\Exceptions\AmountOverflow;
 
 /**
@@ -61,16 +61,11 @@ final readonly class GetCreditsTotalAction
      */
     private function sum(Builder $query, ?array $buckets): int
     {
-        $overflow = static fn (?string $total): AmountOverflow => new AmountOverflow(
-            'The credits total across '.($buckets === null ? 'every bucket' : 'buckets ['.implode(', ', $buckets).']')
-            .($total === null ? '' : " is [{$total}], which").' does not fit a 64-bit integer.',
-        );
-
         try {
             $sum = $query->sum('amount');
         } catch (QueryException $exception) {
             if (str_contains($exception->getMessage(), 'integer overflow')) {
-                throw $overflow(null);
+                throw LedgerBounds::totalOverflow($buckets);
             }
 
             throw $exception;
@@ -78,6 +73,6 @@ final readonly class GetCreditsTotalAction
 
         $exact = is_float($sum) ? sprintf('%.0f', $sum) : (string) $sum;
 
-        return Int64::toInt($exact) ?? throw $overflow($exact);
+        return LedgerBounds::total($exact, $buckets);
     }
 }

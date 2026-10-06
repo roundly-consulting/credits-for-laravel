@@ -22,6 +22,18 @@ final class Int64
         return bcadd((string) $left, (string) $right, 0);
     }
 
+    /** The exact sum of any number of ints ("0" for none), as an integer string. */
+    public static function sum(int ...$terms): string
+    {
+        $sum = '0';
+
+        foreach ($terms as $term) {
+            $sum = bcadd($sum, (string) $term, 0);
+        }
+
+        return $sum;
+    }
+
     /** The exact difference of two ints, as an integer string. */
     public static function subtract(int $left, int $right): string
     {
