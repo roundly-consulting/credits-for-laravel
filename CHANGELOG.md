@@ -6,6 +6,8 @@ All notable changes to `credits-for-laravel` are documented in this file. The fo
 
 ## Unreleased
 
+## 1.1.0 - 2026-10-06
+
 ### Added
 
 - `InsufficientCreditsException::$minimum`: the `credits.minimum_balance` floor the guard
@@ -32,7 +34,8 @@ All notable changes to `credits-for-laravel` are documented in this file. The fo
   `1` before any resolver runs. A script that omitted `--amount` (or passed 0) must pass a
   non-zero amount.
 - Documentation: the supported databases are stated — MySQL and PostgreSQL, SQLite for tests. SQL
-  Server is not supported.
+  Server is not supported. The README hero image loads from its absolute URL, so it also renders
+  on Packagist.
 
 ### Fixed
 
