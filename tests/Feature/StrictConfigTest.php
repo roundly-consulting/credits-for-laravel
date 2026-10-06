@@ -126,3 +126,17 @@ it('reports a broken setting as INVALID in about (strict config)', function (): 
         ->toMatch('/Scale\s*\.*\s*INVALID/')
         ->toMatch('/Modifiable resolvers\s*\.*\s*INVALID/');
 });
+
+it('reports a broken model, key type or overdraft setting as INVALID in about (strict config)', function (string $key, mixed $value, string $row): void {
+    config()->set($key, $value);
+
+    $exitCode = Artisan::call('about', ['--only' => 'credits']);
+
+    expect($exitCode)->toBe(0)
+        ->and(Artisan::output())->toMatch('/'.preg_quote($row, '/').'\s*\.*\s*INVALID/');
+})->with([
+    'overdraft' => ['credits.allow_overdraft', 'enabled', 'Overdraft'],
+    'creditable key type' => ['credits.key_type', 'int', 'Creditable key type'],
+    'primary key type' => ['credits.primary_key_type', 'serial', 'Primary key type'],
+    'model' => ['credits.model', stdClass::class, 'Model'],
+]);

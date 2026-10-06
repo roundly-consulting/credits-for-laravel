@@ -32,15 +32,15 @@ final class CreditsServiceProvider extends PackageServiceProvider
                 ModifyCreditsCommand::class,
             ])
             ->contributesToAbout(static fn (): array => [
-                'Model' => class_basename(CreditModel::class()),
+                'Model' => self::orInvalid(static fn (): string => class_basename(CreditModel::class())),
                 // Surfaced deliberately: a non-bigint id cannot be held by another
                 // package's `morphs()` column on a strict engine, so a host that has
                 // flipped this needs to see it without reading a migration.
-                'Primary key type' => KeyType::fromConfig('credits.primary_key_type')->value,
+                'Primary key type' => self::orInvalid(static fn (): string => KeyType::fromConfig('credits.primary_key_type')->value),
                 // The outbound axis: the key type of the creditable morph column. A
                 // different axis from the credits table's own id — see the config.
-                'Creditable key type' => KeyType::fromConfig('credits.key_type')->value,
-                'Overdraft' => Config::boolean('credits.allow_overdraft') ? 'ALLOWED' : 'BLOCKED',
+                'Creditable key type' => self::orInvalid(static fn (): string => KeyType::fromConfig('credits.key_type')->value),
+                'Overdraft' => self::orInvalid(static fn (): string => Config::boolean('credits.allow_overdraft') ? 'ALLOWED' : 'BLOCKED'),
                 'Minimum balance' => self::orInvalid(static fn (): string => (string) CreditsConfig::minimumBalance()),
                 'Default bucket' => self::orInvalid(CreditsConfig::defaultBucket(...)),
                 'Scale' => self::orInvalid(static fn (): string => (string) CreditsConfig::scale()),

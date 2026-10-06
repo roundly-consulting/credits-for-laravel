@@ -44,6 +44,9 @@ All notable changes to `credits-for-laravel` are documented in this file. The fo
 - A change that is rolled back — a host transaction around `modifyCredits()` that fails, or a
   failed `setCreditsTo()` — no longer reaches `CreditsModified` listeners; the event used to fire
   inside the still-open transaction.
+- `php artisan about` renders `INVALID` for a broken `credits.model`, `credits.key_type`,
+  `credits.primary_key_type` or `credits.allow_overdraft` instead of failing the whole command
+  with an `InvalidConfigurationException`, like the other credits rows.
 
 ## 1.0.1 - 2026-10-04
 
