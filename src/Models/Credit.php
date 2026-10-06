@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Credits\Models;
 
+use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -69,14 +70,16 @@ class Credit extends Model
     }
 
     /**
-     * Limit to rows recorded up to (and including) a point in time.
+     * Limit to rows recorded up to (and including) a point in time. `$at` is an instant:
+     * it is moved to `app.timezone`, the zone `created_at` is stored in, before it is bound
+     * (the database compares wall clocks).
      *
      * @param  Builder<Credit>  $query
      * @return Builder<Credit>
      */
     public function scopeUpTo(Builder $query, CarbonInterface $at): Builder
     {
-        return $query->where('created_at', '<=', $at);
+        return $query->where('created_at', '<=', CarbonImmutable::instance($at)->setTimezone(config()->string('app.timezone')));
     }
 
     /**

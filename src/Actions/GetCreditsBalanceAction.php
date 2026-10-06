@@ -40,7 +40,8 @@ final readonly class GetCreditsBalanceAction
     {
         $query = $query->when(
             value: ! is_null($at),
-            callback: fn (Builder $builder): Builder => $builder->where('created_at', '<=', $at),
+            // Through upTo(), which binds `$at` as an instant in the zone `created_at` is stored in.
+            callback: fn (Builder $builder): Builder => $builder->upTo($at),
         );
 
         if ($lockForUpdate) {

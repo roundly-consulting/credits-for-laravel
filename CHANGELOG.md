@@ -31,6 +31,10 @@ All notable changes to `credits-for-laravel` are documented in this file. The fo
 - A total across buckets past int64 (`totalCreditsBalance()`, `creditsBalanceForBuckets()`,
   `Credits::total()`, `buckets([...])->balance()`) throws `AmountOverflow` instead of returning
   `PHP_INT_MAX` (PostgreSQL / MySQL) or throwing a `QueryException` (SQLite).
+- A point-in-time `$at` in another timezone than `app.timezone` (`creditsBalance($at)`,
+  `totalCreditsBalance($at)`, `Credits::balance()` / `total()`, `Credit::query()->upTo($at)`) is
+  now compared as an instant. It used to be bound by its wall clock, so 11:30 in Bratislava
+  counted a row written at 10:00 UTC, and the fake answered the opposite way.
 
 ## 1.0.1 - 2026-10-04
 
