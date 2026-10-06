@@ -28,6 +28,9 @@ All notable changes to `credits-for-laravel` are documented in this file. The fo
   the new `credits::messages.insufficient_above_minimum` line (English and Slovak). With no floor
   the wording is unchanged. Hosts that published the translations get the new line from the
   package until they add it to their copy.
+- `credits:modify` requires `--amount` and refuses `--amount=0`: both now print an error and exit
+  `1` before any resolver runs. A script that omitted `--amount` (or passed 0) must pass a
+  non-zero amount.
 - Documentation: the supported databases are stated — MySQL and PostgreSQL, SQLite for tests. SQL
   Server is not supported.
 
@@ -66,6 +69,8 @@ All notable changes to `credits-for-laravel` are documented in this file. The fo
 - `Credit::factory()` builds rows in `credits.default_bucket` (it used the migration's `'default'`
   column default) and builds the configured `credits.model`, so a host subclass's `factory()`
   returns the subclass instead of the packaged `Credit`.
+- `credits:modify` without `--amount` (or with `--amount=0`) no longer writes a 0-amount ledger row
+  and fires `CreditsModified` for every resolved entity while reporting success.
 
 ## 1.0.1 - 2026-10-04
 

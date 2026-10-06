@@ -3,6 +3,9 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Event;
+use RoundlyConsulting\Credits\Events\CreditsModified;
+use RoundlyConsulting\Credits\Models\Credit;
 use RoundlyConsulting\Credits\Tests\Fixtures\User;
 
 it('applies credits to entities resolved from config', function (): void {
@@ -101,10 +104,11 @@ it('applies credits to the named bucket from the --bucket option', function (): 
         ->and($user->creditsBalance())->toBe(0);
 });
 
+// `--amount` is required now (it used to default to 0, which this test relied on).
 it('succeeds with no configured resolvers', function (): void {
     config()->set('credits.modifiable', []);
 
-    $exitCode = Artisan::call('credits:modify');
+    $exitCode = Artisan::call('credits:modify', ['--amount' => 10]);
 
     expect($exitCode)->toBe(0);
 });
@@ -149,4 +153,43 @@ it('reports every refused entity when a whole run is refused', function (): void
         ->and(Artisan::output())
         ->toContain('Modified credits on 0 entities.')
         ->toContain('Refused 2 entities with insufficient credits.');
+});
+
+// Regression: `--amount` defaulted to 0, so a run without it (or with `--amount=0`) wrote a
+// 0-amount ledger row and fired CreditsModified for every resolved entity, then reported success.
+it('refuses a missing, blank or zero amount before any resolver runs', function (string|array $call, string $error): void {
+    Event::fake([CreditsModified::class]);
+    $user = User::query()->create(['name' => 'Ada']);
+    $resolved = 0;
+
+    config()->set('credits.modifiable', [
+        function (Closure $modify) use ($user, &$resolved): void {
+            $resolved++;
+            $modify($user);
+        },
+    ]);
+
+    $exitCode = is_string($call) ? Artisan::call($call) : Artisan::call('credits:modify', $call);
+
+    expect($exitCode)->toBe(1)
+        ->and(Artisan::output())->toContain($error)
+        ->and($resolved)->toBe(0)
+        ->and(Credit::query()->count())->toBe(0);
+
+    Event::assertNotDispatched(CreditsModified::class);
+})->with([
+    'no --amount' => [[], 'The --amount option is required.'],
+    'a bare --amount' => ['credits:modify --amount', 'The --amount option is required.'],
+    'a blank --amount=' => ['credits:modify --amount=', 'The --amount option must be an integer.'],
+    '--amount=0' => [['--amount' => '0'], 'The --amount option must not be 0.'],
+    'an integer 0' => [['--amount' => 0], 'The --amount option must not be 0.'],
+]);
+
+it('still applies a non-zero amount', function (): void {
+    $user = User::query()->create(['name' => 'Ada']);
+
+    config()->set('credits.modifiable', [fn (Closure $modify) => $modify($user)]);
+
+    expect(Artisan::call('credits:modify', ['--amount' => '10']))->toBe(0)
+        ->and($user->creditsBalance())->toBe(10);
 });
