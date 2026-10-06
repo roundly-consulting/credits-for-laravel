@@ -6,6 +6,12 @@ All notable changes to `credits-for-laravel` are documented in this file. The fo
 
 ## Unreleased
 
+### Added
+
+- `InsufficientCreditsException::$minimum`: the `credits.minimum_balance` floor the guard
+  enforced, so `$available - $minimum` is what could be spent. It is a new, defaulted fourth
+  constructor argument; the existing properties are unchanged.
+
 ### Changed
 
 - A change, a `setTo()` delta or a cross-bucket total that does not fit the signed 64-bit ledger
@@ -17,6 +23,11 @@ All notable changes to `credits-for-laravel` are documented in this file. The fo
   `DB::transaction()` it reaches listeners only once the outermost transaction commits, and never
   on a rollback. A listener that throws no longer rolls the change (or the host transaction)
   back; if you relied on that, check before making the change instead.
+- With a non-zero `credits.minimum_balance`, the `InsufficientCreditsException` message names what
+  can be spent above the floor ("… only 50 can be spent above the minimum balance of 50."), from
+  the new `credits::messages.insufficient_above_minimum` line (English and Slovak). With no floor
+  the wording is unchanged. Hosts that published the translations get the new line from the
+  package until they add it to their copy.
 - Documentation: the supported databases are stated — MySQL and PostgreSQL, SQLite for tests. SQL
   Server is not supported.
 
@@ -47,6 +58,9 @@ All notable changes to `credits-for-laravel` are documented in this file. The fo
 - `php artisan about` renders `INVALID` for a broken `credits.model`, `credits.key_type`,
   `credits.primary_key_type` or `credits.allow_overdraft` instead of failing the whole command
   with an `InvalidConfigurationException`, like the other credits rows.
+- An `InsufficientCreditsException` under a minimum balance no longer reports the raw balance as
+  available: with a floor of 50, a refused debit of 60 on a balance of 100 read "only 100 are
+  available". The fake's exception matches the real one.
 
 ## 1.0.1 - 2026-10-04
 

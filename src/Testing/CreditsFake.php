@@ -162,9 +162,10 @@ final class CreditsFake extends CreditsManager
 
         if ($data->amount < 0 && ! $data->allowOverdraft && ! Config::boolean('credits.allow_overdraft')) {
             $available = $this->balance($owner, $bucket);
+            $minimum = CreditsConfig::minimumBalance();
 
-            if ($available + $data->amount < CreditsConfig::minimumBalance()) {
-                throw new InsufficientCreditsException(creditable: $owner, requested: $data->amount, available: $available);
+            if ($available + $data->amount < $minimum) {
+                throw new InsufficientCreditsException(creditable: $owner, requested: $data->amount, available: $available, minimum: $minimum);
             }
         }
 

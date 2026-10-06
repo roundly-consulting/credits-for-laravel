@@ -82,11 +82,14 @@ final readonly class ModifyCreditsAction
             return;
         }
 
-        if ($available + $data->amount < CreditsConfig::minimumBalance()) {
+        $minimum = CreditsConfig::minimumBalance();
+
+        if ($available + $data->amount < $minimum) {
             throw new InsufficientCreditsException(
                 creditable: $creditable,
                 requested: $data->amount,
                 available: $available,
+                minimum: $minimum,
             );
         }
     }
