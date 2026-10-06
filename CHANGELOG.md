@@ -6,6 +6,8 @@ All notable changes to `credits-for-laravel` are documented in this file. The fo
 
 ## Unreleased
 
+## 1.1.1 - 2026-10-06
+
 ### Changed
 
 - Under `Credits::fake()`, a change, a `setTo()` delta or a total that does not fit the signed
