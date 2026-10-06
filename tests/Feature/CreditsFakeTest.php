@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Carbon\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Event;
 use PHPUnit\Framework\AssertionFailedError;
@@ -17,6 +18,10 @@ use RoundlyConsulting\Money\Money;
 
 beforeEach(function (): void {
     $this->user = User::query()->create(['name' => 'Ada']);
+});
+
+afterEach(function (): void {
+    Carbon::setTestNow();
 });
 
 it('installs itself behind the facade and injected managers', function (): void {
@@ -237,3 +242,24 @@ it('reads allow_overdraft as an env boolean, like the real guard', function (): 
     expect(Credits::for($this->user)->balance())->toBe(-10);
     $fake->assertDeducted($this->user, 10);
 });
+
+/**
+ * The real ledger stores `created_at` and binds `$at` at second precision, so a change made
+ * later in the same second counts at `$at`. The fake used to stamp and compare microseconds,
+ * and answered the opposite way.
+ */
+it('compares a point in time at second precision, like the real ledger', function (bool $fake): void {
+    if ($fake) {
+        Credits::fake();
+    }
+
+    Carbon::setTestNow(Carbon::parse('2026-10-06 10:00:00.250000', 'UTC'));
+    $at = now();
+
+    Carbon::setTestNow(Carbon::parse('2026-10-06 10:00:00.750000', 'UTC'));
+    Credits::for($this->user)->add(10);
+
+    expect($this->user->creditsBalance($at))->toBe(10)
+        ->and($this->user->totalCreditsBalance($at))->toBe(10)
+        ->and($this->user->creditsBalance(Carbon::parse('2026-10-06 09:59:59.999999', 'UTC')))->toBe(0);
+})->with(['the real manager' => false, 'the fake' => true]);

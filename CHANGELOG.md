@@ -61,6 +61,8 @@ All notable changes to `credits-for-laravel` are documented in this file. The fo
 - An `InsufficientCreditsException` under a minimum balance no longer reports the raw balance as
   available: with a floor of 50, a refused debit of 60 on a balance of 100 read "only 100 are
   available". The fake's exception matches the real one.
+- `Credits::fake()` compares a point-in-time `$at` at second precision, like the real ledger's
+  `created_at`: a change made later in the same second now counts at `$at` on the fake too.
 
 ## 1.0.1 - 2026-10-04
 

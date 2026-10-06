@@ -169,7 +169,8 @@ final class CreditsFake extends CreditsManager
             }
         }
 
-        $this->ledger[] = ['owner' => $owner, 'bucket' => $bucket, 'amount' => $data->amount, 'at' => CarbonImmutable::now()];
+        // Stamped to the second, like the real `created_at`.
+        $this->ledger[] = ['owner' => $owner, 'bucket' => $bucket, 'amount' => $data->amount, 'at' => CarbonImmutable::now()->startOfSecond()];
 
         /** @var Credit $credit */
         $credit = $owner->credits()->make($data->toAttributes());
@@ -191,9 +192,11 @@ final class CreditsFake extends CreditsManager
     private function pending(Model $owner, ?CarbonInterface $at, callable $inBucket): int
     {
         $sum = 0;
+        // The real ledger stores `created_at` and binds `$at` to the second.
+        $upTo = $at === null ? null : CarbonImmutable::instance($at)->startOfSecond();
 
         foreach ($this->ledger as $row) {
-            if ($row['owner']->is($owner) && $inBucket($row['bucket']) && ($at === null || $row['at']->lessThanOrEqualTo($at))) {
+            if ($row['owner']->is($owner) && $inBucket($row['bucket']) && ($upTo === null || $row['at']->lessThanOrEqualTo($upTo))) {
                 $sum += $row['amount'];
             }
         }
