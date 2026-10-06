@@ -25,7 +25,8 @@ into named buckets, and protected against overdraft and race conditions.
 
 ## Installation
 
-Requires PHP 8.4 (`ext-bcmath`), Laravel 12 or 13.
+Requires PHP 8.4 (`ext-bcmath`), Laravel 12 or 13, and MySQL or PostgreSQL (SQLite for tests; SQL
+Server is not supported).
 
 ```bash
 composer require roundly-consulting/credits-for-laravel

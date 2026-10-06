@@ -13,6 +13,8 @@ All notable changes to `credits-for-laravel` are documented in this file. The fo
   `modifyCreditsMoney()` already throws for a single oversized amount). Callers used to see a
   `TypeError`, a capped total or a `QueryException`; catch `AmountOverflow` where you handle very
   large balances.
+- Documentation: the supported databases are stated — MySQL and PostgreSQL, SQLite for tests. SQL
+  Server is not supported.
 
 ### Fixed
 
