@@ -6,6 +6,11 @@ All notable changes to `credits-for-laravel` are documented in this file. The fo
 
 ## Unreleased
 
+### Changed
+
+- Maintenance: requires the latest roundly packages — package-toolkit `^1.3.0`, money `^1.0.1`;
+  dev: testing `^1.2.1`.
+
 ## 1.1.1 - 2026-10-06
 
 ### Changed
