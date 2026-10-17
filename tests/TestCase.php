@@ -37,6 +37,16 @@ abstract class TestCase extends PackageTestCase
     }
 
     /**
+     * Migrate once per worker and schema signature, then reset only the data between tests.
+     * The forked racers end with SIGKILL on a connection of their own, so the kept session
+     * survives them.
+     */
+    protected function keepsMigratedSchema(): bool
+    {
+        return true;
+    }
+
+    /**
      * Two custom money currencies, registered the way a host does it — through
      * `money.currencies.custom`, before the providers boot — so the denominated-bucket
      * suite can map buckets to loyalty points (`PTS`, exponent 0) and to an 18-decimal
