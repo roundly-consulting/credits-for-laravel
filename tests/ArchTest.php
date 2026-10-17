@@ -51,6 +51,13 @@ ArchPresets::noLocalCryptoPrimitives('RoundlyConsulting\Credits');
 ArchPresets::modelsResolveThroughSeam(__DIR__.'/../src', 'Support');
 
 /**
+ * The factory half of the seam: CreditFactory returns the CreditModel seam from
+ * `modelName()`, so a host that swapped `credits.model` gets its own rows (and events)
+ * out of `Credit::factory()`. Already true; this keeps it true.
+ */
+ArchPresets::factoriesResolveThroughSeam(__DIR__.'/../database/factories', __DIR__.'/../src', 'Support');
+
+/**
  * The morph-key seam, guarded. Credits migrated its owner morph column off raw
  * `$table->morphs()` onto `morphKey($name, KeyType::…)` so a uuid/ulid host can flip its
  * whole graph coherently — a hardcoded bigint id breaks those hosts on Postgres, and SQLite
