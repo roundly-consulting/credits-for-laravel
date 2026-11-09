@@ -7,27 +7,27 @@ namespace RoundlyConsulting\Credits\Actions;
 use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Credits\DataTransferObjects\CreditChangeData;
 use RoundlyConsulting\Credits\Events\CreditsModified;
-use RoundlyConsulting\Credits\Exceptions\InsufficientCreditsException;
 use RoundlyConsulting\Credits\Interfaces\Creditable;
 use RoundlyConsulting\Credits\Models\Credit;
-use RoundlyConsulting\Credits\Support\CreditsConfig;
 use RoundlyConsulting\Credits\Support\LedgerBounds;
 use RoundlyConsulting\Credits\Support\LedgerConnection;
+use RoundlyConsulting\Credits\Support\OverdraftGuard;
 use RoundlyConsulting\Credits\Support\OwnerLock;
-use RoundlyConsulting\PackageToolkit\Support\Config;
 
 /**
  * Append one signed ledger row and dispatch CreditsModified. Every change takes the owner
  * lock first and reads the bucket's balance under it, in one transaction with the write, all
  * on the ledger's connection ({@see LedgerConnection}), so racing changes of one owner
  * serialise on every isolation level: a debit is guarded — unless an overdraft is allowed, it
- * may not take the bucket below `credits.minimum_balance` — and the event carries the exact
- * balance this change produced.
+ * may not take the bucket's available balance (the balance minus its active holds, when holds
+ * are on) below `credits.minimum_balance` — and the event carries the exact balance this
+ * change produced.
  */
 final readonly class ModifyCreditsAction
 {
     public function __construct(
         private GetCreditsBalanceAction $balance,
+        private GetCreditsHeldAction $held,
         private OwnerLock $lock,
     ) {}
 
@@ -45,7 +45,16 @@ final readonly class ModifyCreditsAction
                 bucket: $data->resolvedBucket(),
             );
 
-            $this->guardAgainstOverdraft($creditable, $data, $available);
+            // Held credits are not spendable: a guarded debit decides on the balance minus the
+            // active holds, read under the same lock. Read only when the guard applies.
+            if (OverdraftGuard::applies($data->amount, $data->allowOverdraft)) {
+                OverdraftGuard::check(
+                    $creditable,
+                    LedgerBounds::available($available, $this->held->execute($creditable, $data->resolvedBucket(), lockForUpdate: true), $data->resolvedBucket()),
+                    $data->amount,
+                    $data->allowOverdraft,
+                );
+            }
 
             // Checked before the row is written: a result outside int64 is refused, nothing written.
             $balance = LedgerBounds::balanceAfter($available, $data->amount, $data->resolvedBucket());
@@ -59,23 +68,5 @@ final readonly class ModifyCreditsAction
         CreditsModified::dispatch($creditable, $credit, $balance);
 
         return $credit;
-    }
-
-    private function guardAgainstOverdraft(Model&Creditable $creditable, CreditChangeData $data, int $available): void
-    {
-        if ($data->amount >= 0 || $data->allowOverdraft || Config::boolean('credits.allow_overdraft')) {
-            return;
-        }
-
-        $minimum = CreditsConfig::minimumBalance();
-
-        if ($available + $data->amount < $minimum) {
-            throw new InsufficientCreditsException(
-                creditable: $creditable,
-                requested: $data->amount,
-                available: $available,
-                minimum: $minimum,
-            );
-        }
     }
 }

@@ -60,6 +60,11 @@ it('renders the credits section without leaking the ledger it guards', function 
             // The count itself must render — the positive proof that the resolver line is
             // reporting rather than silently empty.
             '1 registered',
+            // Holds are off by default, and without a lifetime a hold never expires.
+            'Holds',
+            'DISABLED',
+            'Hold expiry',
+            'NEVER',
         ],
     );
 });
@@ -79,5 +84,25 @@ it('normalises a native rounding mode set in config to its config spelling', fun
     expect('credits')->toLeakNoSecrets(
         secrets: ['HalfEven'],
         mustRender: ['Rounding', 'half_even'],
+    );
+});
+
+it('reports holds and their default lifetime when configured', function (): void {
+    config()->set('credits.holds.enabled', 'on');
+    config()->set('credits.holds.expire_after_minutes', '30');
+
+    expect('credits')->toLeakNoSecrets(
+        secrets: [User::class],
+        mustRender: ['Holds', 'ENABLED', 'Hold expiry', '30 min'],
+    );
+});
+
+it('reports a misconfigured hold setting instead of failing the about command', function (): void {
+    config()->set('credits.holds.enabled', 'sometimes');
+    config()->set('credits.holds.expire_after_minutes', 'soon');
+
+    expect('credits')->toLeakNoSecrets(
+        secrets: ['sometimes', 'soon'],
+        mustRender: ['Holds', 'Hold expiry', 'INVALID'],
     );
 });

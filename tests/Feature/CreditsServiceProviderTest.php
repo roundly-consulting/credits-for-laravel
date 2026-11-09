@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\ServiceProvider;
+use RoundlyConsulting\Credits\Commands\ExpireCreditHoldsCommand;
 use RoundlyConsulting\Credits\Commands\ModifyCreditsCommand;
+use RoundlyConsulting\Credits\Commands\ResetCreditsCommand;
 use RoundlyConsulting\Credits\CreditsServiceProvider;
 use RoundlyConsulting\Credits\Models\Credit;
 
@@ -22,17 +24,23 @@ it('registers every publish tag', function (string $tag): void {
     'credits-translations',
 ]);
 
-it('publishes its migration timestamp-injected into the host', function (): void {
+it('publishes its migrations timestamp-injected into the host', function (): void {
     $paths = ServiceProvider::pathsToPublish(CreditsServiceProvider::class, 'credits-migrations');
 
-    expect($paths)->toHaveCount(1);
+    expect($paths)->toHaveCount(3);
 
-    $source = (string) array_key_first($paths);
-    $target = (string) reset($paths);
+    $published = [];
 
-    expect(basename($source))->toBe('create_credits_table.php')
-        ->and(dirname($target))->toBe(database_path('migrations'))
-        ->and(basename($target))->toMatch('/^\d{4}_\d{2}_\d{2}_\d{6}_create_credits_table\.php$/');
+    foreach ($paths as $source => $target) {
+        expect(dirname((string) $target))->toBe(database_path('migrations'))
+            ->and(basename((string) $target))->toMatch('/^\d{4}_\d{2}_\d{2}_\d{6}_'.preg_quote(basename((string) $source), '/').'$/');
+
+        $published[] = basename((string) $source);
+    }
+
+    sort($published);
+
+    expect($published)->toBe(['create_credit_holds_table.php', 'create_credit_resets_table.php', 'create_credits_table.php']);
 });
 
 it('never auto-loads its migrations — the host must publish them', function (): void {
@@ -44,10 +52,14 @@ it('never auto-loads its migrations — the host must publish them', function ()
     expect($registered)->not->toContain(realpath(__DIR__.'/../../database/migrations'));
 });
 
-it('registers the modify command', function (): void {
-    expect(Artisan::all())->toHaveKey('credits:modify')
-        ->and(Artisan::all()['credits:modify'])->toBeInstanceOf(ModifyCreditsCommand::class);
-});
+it('registers its commands', function (string $name, string $class): void {
+    expect(Artisan::all())->toHaveKey($name)
+        ->and(Artisan::all()[$name])->toBeInstanceOf($class);
+})->with([
+    ['credits:modify', ModifyCreditsCommand::class],
+    ['credits:reset', ResetCreditsCommand::class],
+    ['credits:expire-holds', ExpireCreditHoldsCommand::class],
+]);
 
 it('registers the package translations', function (): void {
     expect(trans('credits::messages.insufficient', ['requested' => 5, 'available' => 2]))
@@ -67,6 +79,8 @@ it('contributes a credits section to about', function (string $expected): void {
     'Default bucket',
     'Scale',
     'Modifiable resolvers',
+    'Holds',
+    'Hold expiry',
 ]);
 
 it('reports overdraft as allowed in about when configured', function (): void {

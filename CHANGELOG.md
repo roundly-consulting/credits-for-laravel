@@ -6,6 +6,48 @@ All notable changes to `credits-for-laravel` are documented in this file. The fo
 
 ## Unreleased
 
+### Added
+
+- Holds (reservations): `Credits::for($owner)->hold($amount, $expiresAt)` reserves credits in a bucket without
+  writing a ledger row, lowering what can be spent until the hold is captured (`Credits::capture($hold, $amount)`
+  — in full, or in part with the rest released), released (`Credits::release($hold)`) or expires. Holds are
+  decided like debits — under the owner lock, against the available balance read under row locks — so two
+  racing holds, or a hold and a debit, can never reserve more than the bucket can spend; a hold is captured or
+  released at most once, and a capture racing the expiry sweep either wins or is refused. A capture writes one
+  ledger debit (linked from the hold's `credit_id`) and is never refused for the minimum balance — the hold
+  already reserved it. Also on the model: `$hold->capture()`, `$hold->release()`, `$user->holdCredits()`.
+- Holds are opt-in: publish and run the new `create_credit_holds_table` migration, then set
+  `credits.holds.enabled` (`CREDITS_HOLDS`). While holds are off nothing changes — `hold()` throws
+  `CreditHoldsDisabledException` and the debit guard never reads the holds table. Once on, a debit (and
+  `setTo()`) can no longer spend held credits. `credits.holds.expire_after_minutes`
+  (`CREDITS_HOLD_EXPIRE_AFTER_MINUTES`) gives holds without an explicit expiry a default lifetime.
+- Available vs held balances: `Credits::available($owner, $bucket)`, `Credits::held($owner, $bucket)`,
+  `Credits::for($owner)->available()` / `held()` / `hasAvailable($amount)`, and on the model
+  `availableCredits()`, `heldCredits()`, `hasAvailableCredits()`. `balance()` keeps returning the ledger balance.
+- Hold expiry sweep: `Credits::expireHolds()`, the `credits:expire-holds` command and the queueable
+  `ExpireCreditHolds` job — schedulable, idempotent and safe to run on several servers. An expired hold stops
+  counting the moment its `expires_at` passes; the sweep marks it expired and fires the event.
+- Events `CreditsHeld`, `CreditHoldCaptured` (with the released remainder), `CreditHoldReleased` and
+  `CreditHoldExpired`, all dispatched after commit; a capture fires `CreditsModified` for its debit too.
+- Exceptions `CreditHoldNotActiveException` (with the status the hold was found in),
+  `ForeignCreditHoldException` (a scoped capture or release of another owner's hold) and
+  `CreditHoldsDisabledException`, all `CreditsException`s, with English and Slovak messages.
+- Periodic bucket resets: `Credits::for($owner)->bucket('free')->reset(ResetPeriod::Monthly, to: 100)` (or
+  `Credits::reset()`, `$user->resetCredits()`) sets a bucket to an exact balance at most once per period —
+  daily, weekly (ISO), monthly, yearly or an explicit period key — so a double-scheduled run never resets
+  twice. The `credits:reset {bucket*} --period= --to=` command resets every owner with rows in the bucket (or
+  the `credits.modifiable` resolvers' owners with `--resolvers`) and is meant for the scheduler. Needs the new
+  `create_credit_resets_table` migration.
+- `Credits::fake()` covers holds, captures, releases, expiry and resets in memory, with `assertHeld()`,
+  `assertNothingHeld()`, `assertCaptured()`, `assertNothingCaptured()`, `assertReleased()`,
+  `assertNothingReleased()`, `assertReset()` and `assertNothingReset()`.
+- `php artisan about` shows whether holds are on and their default lifetime.
+
+### Planned for the next major
+
+- `credits.holds.enabled` defaults to on. It is off in 2.x only so that upgrading without running the new
+  migration keeps working; a host that wants holds today sets it.
+
 ## 2.0.0 - 2026-11-07
 
 ### Changed

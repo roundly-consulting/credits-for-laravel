@@ -16,6 +16,13 @@ use RoundlyConsulting\Credits\Testing\CreditsFake;
  * @method static int total(\Illuminate\Database\Eloquent\Model&\RoundlyConsulting\Credits\Interfaces\Creditable $owner, ?array<int, string> $buckets = null, ?\Carbon\CarbonInterface $at = null)
  * @method static \RoundlyConsulting\Credits\Models\Credit modify(\Illuminate\Database\Eloquent\Model&\RoundlyConsulting\Credits\Interfaces\Creditable $owner, \RoundlyConsulting\Credits\DataTransferObjects\CreditChangeData $data)
  * @method static ?\RoundlyConsulting\Credits\Models\Credit setTo(\Illuminate\Database\Eloquent\Model&\RoundlyConsulting\Credits\Interfaces\Creditable $owner, int $amount, ?string $description = null, ?array<string, mixed> $meta = null, bool $allowOverdraft = false, ?string $bucket = null)
+ * @method static int held(\Illuminate\Database\Eloquent\Model&\RoundlyConsulting\Credits\Interfaces\Creditable $owner, ?string $bucket = null)
+ * @method static int available(\Illuminate\Database\Eloquent\Model&\RoundlyConsulting\Credits\Interfaces\Creditable $owner, ?string $bucket = null)
+ * @method static \RoundlyConsulting\Credits\Models\CreditHold hold(\Illuminate\Database\Eloquent\Model&\RoundlyConsulting\Credits\Interfaces\Creditable $owner, \RoundlyConsulting\Credits\DataTransferObjects\CreditHoldData $data)
+ * @method static \RoundlyConsulting\Credits\Models\Credit capture(\RoundlyConsulting\Credits\Models\CreditHold $hold, ?int $amount = null, ?string $description = null, ?array<string, mixed> $meta = null)
+ * @method static \RoundlyConsulting\Credits\Models\CreditHold release(\RoundlyConsulting\Credits\Models\CreditHold $hold)
+ * @method static int expireHolds(?\Carbon\CarbonInterface $now = null, ?string $connection = null)
+ * @method static \RoundlyConsulting\Credits\DataTransferObjects\CreditResetResult reset(\Illuminate\Database\Eloquent\Model&\RoundlyConsulting\Credits\Interfaces\Creditable $owner, \RoundlyConsulting\Credits\Enums\ResetPeriod|string $period, int $to = 0, ?string $bucket = null, ?string $description = null, ?array<string, mixed> $meta = null, bool $allowOverdraft = false)
  *
  * @see CreditsManager
  */

@@ -173,10 +173,36 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Holds (reservations)
+    |--------------------------------------------------------------------------
+    |
+    | A hold reserves part of a bucket's balance — it lowers what can be spent
+    | without writing a ledger row — and is later captured (in full or in part,
+    | the rest released), released, or expired. Holds need the
+    | `create_credit_holds_table` migration, so they are off until you publish
+    | and run it and switch them on here. While they are off, `hold()` throws
+    | and the debit guard never reads the holds table; once on, a debit can no
+    | longer spend credits that are held.
+    |
+    | "expire_after_minutes" is the lifetime a hold gets when the call does not
+    | pass its own expiry. Blank or 0 means holds without an explicit expiry
+    | never expire. Expired holds stop counting at once; `credits:expire-holds`
+    | (schedule it) marks them expired and fires CreditHoldExpired.
+    |
+    */
+
+    'holds' => [
+        'enabled' => env('CREDITS_HOLDS', false),
+        'expire_after_minutes' => env('CREDITS_HOLD_EXPIRE_AFTER_MINUTES'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Modifiable Resolvers
     |--------------------------------------------------------------------------
     |
-    | A list of closures invoked by the `credits:modify` command. Each closure
+    | A list of closures invoked by the `credits:modify` command (and by
+    | `credits:reset --resolvers`). Each closure
     | receives a `$modify` callback that applies the requested credit change to
     | a Creditable entity.
     |

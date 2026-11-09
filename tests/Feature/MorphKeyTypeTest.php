@@ -138,3 +138,60 @@ it('holds credits on a uuid-keyed owner when key_type is uuid', function (): voi
 
     Schema::dropIfExists('uuid_users');
 });
+
+function runHoldAndResetMigrations(): void
+{
+    Schema::dropIfExists('credit_holds');
+    Schema::dropIfExists('credit_resets');
+
+    foreach (['create_credit_holds_table.php', 'create_credit_resets_table.php'] as $file) {
+        $migration = require __DIR__.'/../../database/migrations/'.$file;
+        $migration->up();
+    }
+}
+
+it('keys the holds and the reset markers on the creditable axis', function (string $keyType, string $expected): void {
+    config()->set('credits.key_type', $keyType);
+    config()->set('credits.primary_key_type', 'bigint');
+
+    runHoldAndResetMigrations();
+
+    expect(morphKtColumn('credit_holds', 'creditable_id')['type'])->toBe($expected)
+        ->and(morphKtColumn('credit_resets', 'creditable_id')['type'])->toBe($expected)
+        ->and(morphKtColumn('credit_holds', 'id')['type'])->toBe('bigint')
+        ->and(morphKtColumn('credit_holds', 'credit_id')['type'])->toBe('bigint');
+})->with([
+    'bigint' => ['bigint', 'bigint'],
+    'uuid' => ['uuid', 'uuid'],
+    'ulid' => ['ulid', 'character(26)'],
+])->skip($pgsqlOnly, 'needs the postgres catalog to tell the key types apart — sqlite affinity hides it');
+
+it('holds and resets credits on a uuid-keyed owner when key_type is uuid', function (): void {
+    config()->set('credits.key_type', 'uuid');
+    config()->set('credits.primary_key_type', 'bigint');
+    config()->set('credits.holds.enabled', true);
+    runCreditsMigration();
+    runHoldAndResetMigrations();
+
+    Schema::dropIfExists('uuid_users');
+    Schema::create('uuid_users', function (Blueprint $t): void {
+        $t->uuid('id')->primary();
+        $t->string('name')->nullable();
+        $t->timestamps();
+    });
+
+    $owner = UuidUser::query()->create(['name' => 'Ada']);
+    $owner->modifyCredits(100);
+
+    $hold = $owner->holdCredits(30);
+    $hold->capture(10);
+    $owner->holdCredits(20)->release();
+    $owner->resetCredits('2026-11', to: 50);
+
+    expect($owner->creditsBalance())->toBe(50)
+        ->and($owner->heldCredits())->toBe(0)
+        ->and($hold->fresh()?->creditable_id)->toBe($owner->id)
+        ->and(DB::table('credit_resets')->value('creditable_id'))->toBe($owner->id);
+
+    Schema::dropIfExists('uuid_users');
+});

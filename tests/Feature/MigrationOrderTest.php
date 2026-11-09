@@ -8,9 +8,9 @@ use RoundlyConsulting\Credits\Tests\Fixtures\User;
 use RoundlyConsulting\Testing\Database\DriverMatrix;
 
 /**
- * Credits ships exactly one migration file (creating the `credits` ledger and its
- * `credit_locks` owner-lock table) and zero foreign keys — both key their owner through a
- * polymorphic `creditable` morph, which is deliberately unconstrained because a host's
+ * Credits ships three migration files — the `credits` ledger with its `credit_locks`
+ * owner-lock table, the `credit_holds` reservations and the `credit_resets` period markers —
+ * and zero foreign keys: every table keys its owner through a polymorphic `creditable` morph, which is deliberately unconstrained because a host's
  * creditable entity can live in any table.
  *
  * That shape changes what is worth pinning here, and it is worth being explicit about why:
@@ -40,7 +40,7 @@ it('never auto-loads its migration — the host publishes it', function (): void
 });
 
 it('publishes its migration timestamp-injected into the host', function (): void {
-    expect(CreditsServiceProvider::class)->toPublishMigrationsTimestamped('credits-migrations', 1);
+    expect(CreditsServiceProvider::class)->toPublishMigrationsTimestamped('credits-migrations', 3);
 });
 
 /**
@@ -51,7 +51,7 @@ it('publishes its migration timestamp-injected into the host', function (): void
  * passes and proves nothing.
  */
 it('applies its migration on postgres', function () use ($migrations): void {
-    expect($migrations)->toApplyOnConnection('pgsql', migrations: 1);
+    expect($migrations)->toApplyOnConnection('pgsql', migrations: 3);
 })->skip(fn (): bool => ! test()->connectionAvailable('pgsql'), 'no postgres connection available');
 
 /**

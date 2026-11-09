@@ -22,3 +22,9 @@ it('narrows a balance to an int only when it fits', function (): void {
         ->and(LedgerBounds::balanceOverflow('points')->getMessage())
         ->toBe('The credits balance of bucket [points] does not fit a 64-bit integer.');
 });
+
+it('narrows an available balance to an int only when it fits', function (): void {
+    expect(LedgerBounds::available(100, 30, 'points'))->toBe(70)
+        ->and(fn (): int => LedgerBounds::available(PHP_INT_MIN, 1, 'points'))
+        ->toThrow(AmountOverflow::class, 'The available credits of bucket [points] are [-9223372036854775809], which does not fit a 64-bit integer.');
+});

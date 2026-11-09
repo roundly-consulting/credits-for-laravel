@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Credits;
 
 use Closure;
+use RoundlyConsulting\Credits\Commands\ExpireCreditHoldsCommand;
 use RoundlyConsulting\Credits\Commands\ModifyCreditsCommand;
+use RoundlyConsulting\Credits\Commands\ResetCreditsCommand;
 use RoundlyConsulting\Credits\Support\CreditModel;
 use RoundlyConsulting\Credits\Support\CreditsConfig;
 use RoundlyConsulting\Money\Exceptions\InvalidMoneyConfiguration;
@@ -30,6 +32,8 @@ final class CreditsServiceProvider extends PackageServiceProvider
             ->hasTranslations()
             ->hasCommands([
                 ModifyCreditsCommand::class,
+                ResetCreditsCommand::class,
+                ExpireCreditHoldsCommand::class,
             ])
             ->contributesToAbout(static fn (): array => [
                 'Model' => self::orInvalid(static fn (): string => class_basename(CreditModel::class())),
@@ -46,6 +50,12 @@ final class CreditsServiceProvider extends PackageServiceProvider
                 'Scale' => self::orInvalid(static fn (): string => (string) CreditsConfig::scale()),
                 'Rounding' => self::rounding(),
                 'Modifiable resolvers' => self::modifiableResolvers(),
+                'Holds' => self::orInvalid(static fn (): string => CreditsConfig::holdsEnabled() ? 'ENABLED' : 'DISABLED'),
+                'Hold expiry' => self::orInvalid(static function (): string {
+                    $minutes = CreditsConfig::holdExpireAfterMinutes();
+
+                    return $minutes === null ? 'NEVER' : $minutes.' min';
+                }),
             ]);
     }
 

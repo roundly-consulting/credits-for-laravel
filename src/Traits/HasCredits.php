@@ -9,10 +9,13 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use RoundingMode;
 use RoundlyConsulting\Credits\CreditsManager;
+use RoundlyConsulting\Credits\DataTransferObjects\CreditResetResult;
+use RoundlyConsulting\Credits\Enums\ResetPeriod;
 use RoundlyConsulting\Credits\Exceptions\BucketNotDenominatedException;
 use RoundlyConsulting\Credits\Handles\CreditsScope;
 use RoundlyConsulting\Credits\Interfaces\Creditable;
 use RoundlyConsulting\Credits\Models\Credit;
+use RoundlyConsulting\Credits\Models\CreditHold;
 use RoundlyConsulting\Credits\Support\CreditModel;
 use RoundlyConsulting\Money\Currency;
 use RoundlyConsulting\Money\Exceptions\AmountOverflow;
@@ -164,6 +167,62 @@ trait HasCredits
         ?string $bucket = null,
     ): ?Credit {
         return $this->creditsIn($bucket)->allowOverdraft($allowOverdraft)->setTo($amount, $description, $meta);
+    }
+
+    /**
+     * What a bucket can spend now: its balance minus the credits its active holds reserve.
+     */
+    public function availableCredits(?string $bucket = null): int
+    {
+        return $this->creditsIn($bucket)->available();
+    }
+
+    /**
+     * The credits a bucket's active holds reserve; 0 while holds are off.
+     */
+    public function heldCredits(?string $bucket = null): int
+    {
+        return $this->creditsIn($bucket)->held();
+    }
+
+    /**
+     * Whether a bucket's available balance covers `$amount`.
+     */
+    public function hasAvailableCredits(int $amount = 1, ?string $bucket = null): bool
+    {
+        return $this->creditsIn($bucket)->hasAvailable($amount);
+    }
+
+    /**
+     * Reserve credits in a bucket — `Credits::for($this)->hold()`.
+     *
+     * @param  array<string, mixed>|null  $meta
+     */
+    public function holdCredits(
+        int $amount,
+        ?CarbonInterface $expiresAt = null,
+        ?string $description = null,
+        ?array $meta = null,
+        bool $allowOverdraft = false,
+        ?string $bucket = null,
+    ): CreditHold {
+        return $this->creditsIn($bucket)->allowOverdraft($allowOverdraft)->hold($amount, $expiresAt, $description, $meta);
+    }
+
+    /**
+     * Reset a bucket to `$to` once per period — `Credits::for($this)->reset()`.
+     *
+     * @param  array<string, mixed>|null  $meta
+     */
+    public function resetCredits(
+        ResetPeriod|string $period,
+        int $to = 0,
+        ?string $description = null,
+        ?array $meta = null,
+        bool $allowOverdraft = false,
+        ?string $bucket = null,
+    ): CreditResetResult {
+        return $this->creditsIn($bucket)->allowOverdraft($allowOverdraft)->reset($period, $to, $description, $meta);
     }
 
     /**

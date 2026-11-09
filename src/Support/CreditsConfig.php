@@ -73,6 +73,23 @@ final class CreditsConfig
         return array_values($modifiable);
     }
 
+    /** Whether holds are switched on (`credits.holds.enabled`); off by default. */
+    public static function holdsEnabled(): bool
+    {
+        return Config::boolean('credits.holds.enabled');
+    }
+
+    /**
+     * The default hold lifetime in minutes (`credits.holds.expire_after_minutes`); null when
+     * holds without an explicit expiry never expire (not set, or 0).
+     */
+    public static function holdExpireAfterMinutes(): ?int
+    {
+        $minutes = Config::integer('credits.holds.expire_after_minutes', 0, min: 0);
+
+        return $minutes === 0 ? null : $minutes;
+    }
+
     /** Not set: absent, null or a blank string (`''` or whitespace — a host's `KEY=`). */
     public static function blank(mixed $value): bool
     {

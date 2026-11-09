@@ -10,10 +10,18 @@ use InvalidArgumentException;
 use RoundingMode;
 use RoundlyConsulting\Credits\CreditsManager;
 use RoundlyConsulting\Credits\DataTransferObjects\CreditChangeData;
+use RoundlyConsulting\Credits\DataTransferObjects\CreditHoldData;
+use RoundlyConsulting\Credits\DataTransferObjects\CreditResetResult;
+use RoundlyConsulting\Credits\Enums\ResetPeriod;
 use RoundlyConsulting\Credits\Exceptions\BucketNotDenominatedException;
+use RoundlyConsulting\Credits\Exceptions\CreditHoldNotActiveException;
+use RoundlyConsulting\Credits\Exceptions\CreditHoldsDisabledException;
+use RoundlyConsulting\Credits\Exceptions\ForeignCreditHoldException;
 use RoundlyConsulting\Credits\Exceptions\InsufficientCreditsException;
 use RoundlyConsulting\Credits\Interfaces\Creditable;
 use RoundlyConsulting\Credits\Models\Credit;
+use RoundlyConsulting\Credits\Models\CreditHold;
+use RoundlyConsulting\Credits\Support\CreditHolds;
 use RoundlyConsulting\Credits\Support\CreditsConfig;
 use RoundlyConsulting\Money\Currency;
 use RoundlyConsulting\Money\Exceptions\AmountOverflow;
@@ -134,6 +142,89 @@ final readonly class CreditsScope
     }
 
     /**
+     * The credits this bucket's active holds reserve; 0 while holds are off.
+     */
+    public function held(): int
+    {
+        return $this->manager->held($this->owner, $this->bucket);
+    }
+
+    /**
+     * What this bucket can spend now: the balance minus the held credits.
+     */
+    public function available(): int
+    {
+        return $this->manager->available($this->owner, $this->bucket);
+    }
+
+    /**
+     * Whether the available balance covers `$amount`.
+     */
+    public function hasAvailable(int $amount = 1): bool
+    {
+        return $this->available() >= $amount;
+    }
+
+    /**
+     * Reserve `$amount` in this bucket until it is captured, released or expires (at
+     * `$expiresAt`, else after `credits.holds.expire_after_minutes`, else never).
+     *
+     * @param  array<string, mixed>|null  $meta
+     *
+     * @throws CreditHoldsDisabledException
+     * @throws InsufficientCreditsException when it would breach the minimum balance.
+     * @throws InvalidArgumentException when the amount is not positive or the expiry has passed.
+     */
+    public function hold(int $amount, ?CarbonInterface $expiresAt = null, ?string $description = null, ?array $meta = null): CreditHold
+    {
+        return $this->manager->hold($this->owner, new CreditHoldData(
+            amount: $amount,
+            expiresAt: $expiresAt,
+            description: $description,
+            meta: $meta,
+            allowOverdraft: $this->allowOverdraft,
+            bucket: $this->bucket,
+        ));
+    }
+
+    /**
+     * Capture one of this owner's holds — whatever bucket it is in — in full or by `$amount`.
+     *
+     * @param  array<string, mixed>|null  $meta
+     *
+     * @throws ForeignCreditHoldException when the hold belongs to another owner.
+     * @throws CreditHoldNotActiveException
+     */
+    public function capture(CreditHold $hold, ?int $amount = null, ?string $description = null, ?array $meta = null): Credit
+    {
+        return $this->manager->capture($this->owned($hold), $amount, $description, $meta);
+    }
+
+    /**
+     * Release one of this owner's holds.
+     *
+     * @throws ForeignCreditHoldException when the hold belongs to another owner.
+     * @throws CreditHoldNotActiveException
+     */
+    public function release(CreditHold $hold): CreditHold
+    {
+        return $this->manager->release($this->owned($hold));
+    }
+
+    /**
+     * Reset this bucket to `$to` once per period (a ResetPeriod read from now, or an explicit
+     * key); a second call in the same period writes nothing.
+     *
+     * @param  array<string, mixed>|null  $meta
+     *
+     * @throws InsufficientCreditsException when lowering it would breach the minimum balance.
+     */
+    public function reset(ResetPeriod|string $period, int $to = 0, ?string $description = null, ?array $meta = null): CreditResetResult
+    {
+        return $this->manager->reset($this->owner, $period, $to, $this->bucket, $description, $meta, $this->allowOverdraft);
+    }
+
+    /**
      * The currency this bucket is denominated in, or null for plain credits.
      */
     public function currency(): ?Currency
@@ -216,6 +307,18 @@ final readonly class CreditsScope
     public function formatMoney(?string $locale = null): string
     {
         return $this->money()->format($locale);
+    }
+
+    /**
+     * @throws ForeignCreditHoldException
+     */
+    private function owned(CreditHold $hold): CreditHold
+    {
+        if (! CreditHolds::ownedBy($hold, $this->owner)) {
+            throw new ForeignCreditHoldException($hold);
+        }
+
+        return $hold;
     }
 
     private function denominated(): Currency

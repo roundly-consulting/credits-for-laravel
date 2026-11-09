@@ -43,10 +43,15 @@ final class OwnerLock
 
     public function acquire(Model&Creditable $creditable): void
     {
-        $connection = LedgerConnection::of($creditable);
-        $type = $creditable->getMorphClass();
-        $id = $creditable->getKey();
+        $this->acquireFor(LedgerConnection::of($creditable), $creditable->getMorphClass(), $creditable->getKey());
+    }
 
+    /**
+     * The same lock, named by the owner's morph pair — for a write that starts from a ledger
+     * record (a hold the expiry sweep finds) rather than from a loaded owner, which may be gone.
+     */
+    public function acquireFor(ConnectionInterface $connection, string $type, mixed $id): void
+    {
         if ($this->bump($connection, $type, $id) > 0) {
             return;
         }

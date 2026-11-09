@@ -33,6 +33,20 @@ final class LedgerBounds
     }
 
     /**
+     * What the bucket can spend: its balance minus the credits its active holds reserve.
+     *
+     * @throws AmountOverflow when it does not fit
+     */
+    public static function available(int $balance, int $held, string $bucket): int
+    {
+        $exact = Int64::subtract($balance, $held);
+
+        return Int64::toInt($exact) ?? throw new AmountOverflow(
+            "The available credits of bucket [{$bucket}] are [{$exact}], which does not fit a 64-bit integer.",
+        );
+    }
+
+    /**
      * The change that takes the bucket from `$balance` to `$target`.
      *
      * @throws AmountOverflow when it does not fit; nothing must be written

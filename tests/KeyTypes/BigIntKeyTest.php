@@ -2,7 +2,9 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use RoundlyConsulting\Credits\Facades\Credits;
 use RoundlyConsulting\Credits\Models\Credit;
 use RoundlyConsulting\Credits\Tests\Fixtures\User;
 
@@ -62,4 +64,19 @@ it('produces an id a bigint morph column can hold', function (): void {
     ]);
 
     expect($stored)->toBeGreaterThan(0);
+});
+
+it('keys holds and reset markers by the configured bigint key, and links the ledger rows', function (): void {
+    config()->set('credits.holds.enabled', true);
+    $user = User::query()->create(['name' => 'Ada']);
+    $user->modifyCredits(100);
+
+    $hold = Credits::for($user)->hold(30);
+    $credit = Credits::capture($hold, 10);
+    $reset = Credits::reset($user, '2026-11', to: 5);
+
+    expect($hold->id)->toBeInt()
+        ->and($hold->fresh()?->credit_id)->toEqual($credit->id)
+        ->and(DB::table('credit_resets')->value('credit_id'))->toEqual($reset->credit?->id)
+        ->and($user->creditsBalance())->toBe(5);
 });
