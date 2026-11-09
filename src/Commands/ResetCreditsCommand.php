@@ -42,7 +42,8 @@ final class ResetCreditsCommand extends Command
     {
         $key = $this->periodKey();
         // A string from the console; `Artisan::call()` may hand over an int as given.
-        $to = (string) $this->option('to');
+        $to = $this->option('to');
+        $to = is_scalar($to) ? (string) $to : '';
 
         if ($key === null) {
             return self::FAILURE;
@@ -105,7 +106,8 @@ final class ResetCreditsCommand extends Command
                 return CreditResets::key($explicit, CarbonImmutable::now());
             }
 
-            $period = ResetPeriod::tryFrom((string) $this->option('period'));
+            $period = $this->option('period');
+            $period = ResetPeriod::tryFrom(is_string($period) ? $period : '');
 
             if ($period === null) {
                 $this->error('The --period option must be one of: daily, weekly, monthly, yearly.');
