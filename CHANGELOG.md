@@ -4,6 +4,16 @@ All notable changes to `credits-for-laravel` are documented in this file. The fo
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## 2.2.1 - 2026-11-15
+
+### Fixed
+
+- Capturing a hold made on an owner with credit parents threw `LazyLoadingViolationException` under
+  `Model::preventLazyLoading()`, Laravel's default outside production. The ancestors' levels were read as one
+  collection, then each level's owner was lazy-loaded. The levels now come with their owners eager-loaded (one
+  query per owner type). A hold's own owner is read without a lazy load too, so a hold the app took from a
+  collection can be captured. The whole suite now runs with lazy loading refused.
+
 ## 2.2.0 - 2026-11-15
 
 ### Added
