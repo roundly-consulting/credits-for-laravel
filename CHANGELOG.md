@@ -4,6 +4,50 @@ All notable changes to `credits-for-laravel` are documented in this file. The fo
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## 2.2.0 - 2026-11-15
+
+### Added
+
+- Nested budgets (parent ceilings). An owner can sit inside another one: a person inside a team inside a
+  company. It names its parent by implementing the new `HasCreditParent` interface (`creditParent()`), or the app
+  registers one resolver for every owner with `Credits::resolveParentsUsing($closure)`. Opt-in:
+  `credits.parents.enabled` (`CREDITS_PARENTS`) is off by default, and while it is off no parent is ever looked up.
+- On an owner with parents, a hold, a debit (`modify()` with a negative amount) and a `setTo()` that lowers the
+  balance must fit every level's available balance in the same bucket. The whole chain is decided in one
+  transaction, its owner locks taken from the top down. Two holds on sibling owners racing for the parent's last
+  credits cannot both pass, and opposite-order requests cannot deadlock.
+- A debit writes one ledger row per level. A hold writes one hold per level: the one returned, and a linked hold on
+  each ancestor (`origin_hold_id`, `chain_depth`). `capture()` and `release()` resolve every level, and
+  `expireHolds()` expires them together. `CreditsHeld`, `CreditsModified`, `CreditHoldCaptured`,
+  `CreditHoldReleased` and `CreditHoldExpired` fire for every level that changed. A grant (a positive amount) and
+  a `setTo()` that raises the balance stay with the owner.
+- `Credits::availableWithin($owner, $bucket)` (and `Credits::for($owner)->availableWithin()`) returns a
+  `CreditsAvailability`: the chain's smallest available balance, the owner that has it (`limitedBy`) and the
+  number of levels.
+- `InsufficientCreditsException` names the owner that blocked: `$creditable` is that owner, `$requestedBy` the one
+  the call was made on, with `blockedByParent()`, `ownerType()` and `ownerKey()`. A refusal by a parent gets its own
+  message naming the parent (en, sk).
+- `capture()` takes `allowOverdraft`: with it, a hold can be captured for more than was held, and the excess is
+  debited on every level of the chain. `Credits::for($owner)->allowOverdraft()->capture(…)` passes it too.
+- `credits.parents.max_depth` (`CREDITS_PARENTS_MAX_DEPTH`, default 8) bounds a chain. A cycle, a chain deeper than
+  that, or a parent whose ledger lives on another connection throws `InvalidCreditParentException`.
+- `LinkedCreditHoldException`: an ancestor's level of a hold is resolved only through the hold the call made.
+- `Credits::fake()` walks parents the way the ledger does, and records every level.
+- `php artisan about` shows whether parents are on, and the depth limit.
+
+### Changed
+
+- `reset()` stays per owner: lowering an owner with parents in a reset does not debit them.
+
+### Upgrade
+
+- Nothing changes until you switch parents on. To use them with holds, publish and run the new
+  `link_credit_holds_to_their_origin` migration (`php artisan vendor:publish --tag=credits-migrations`, then
+  `php artisan migrate`). It adds two nullable/defaulted columns and an index to `credit_holds`. Hosts that use
+  parents without holds need no migration.
+- Switch parents off only once no hold made on an owner with parents is still active. Its linked levels are
+  resolved only while parents are on.
+
 ## 2.1.0 - 2026-11-09
 
 ### Added
