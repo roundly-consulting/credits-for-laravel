@@ -68,29 +68,6 @@ $points->add(500, 'Loyalty bonus');
 $points->balance();                                                // 500
 ```
 
-### Nested budgets (parent ceilings)
-
-Opt in with `CREDITS_PARENTS=true`, and a person's spending also counts against, and is capped by,
-its team's and company's budgets. A hold or debit checks and writes every level in one transaction:
-
-```php
-use RoundlyConsulting\Credits\Interfaces\HasCreditParent;
-
-final class Team extends Model implements Creditable, HasCreditParent
-{
-    use HasCredits;
-
-    public function creditParent(): ?Company
-    {
-        return $this->company;
-    }
-}
-
-$hold = Credits::for($team)->hold(40);         // held on the team and on its company
-Credits::availableWithin($team)->available;    // the smallest available along the chain
-Credits::capture($hold, 25);                   // debits every level
-```
-
 <!-- roundly-docs:start -->
 ## Documentation
 
