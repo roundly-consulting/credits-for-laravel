@@ -21,6 +21,8 @@ use RoundlyConsulting\Credits\Support\OwnerLock;
  * delta row are written in one transaction under the owner lock, so a second run in the same
  * period — a double-scheduled command, two servers, a retried job — finds the marker and
  * writes nothing, and a reset the guard refuses leaves no marker (the next run retries it).
+ *
+ * A reset is per owner: lowering an owner that has credit parents does not debit them.
  */
 final readonly class ResetCreditsAction
 {
@@ -58,7 +60,8 @@ final readonly class ResetCreditsAction
                 return new CreditResetResult(reset: false, period: $key);
             }
 
-            $credit = $this->set->execute($creditable, $to, $description, $meta ?? ['reset_period' => $key], $allowOverdraft, $bucket);
+            // Per owner: a reset sets this owner's own budget and never touches its parents.
+            $credit = $this->set->execute($creditable, $to, $description, $meta ?? ['reset_period' => $key], $allowOverdraft, $bucket, withinParents: false);
 
             if ($credit !== null) {
                 CreditResets::link($connection, $creditable, $bucket, $key, $credit->getKey());

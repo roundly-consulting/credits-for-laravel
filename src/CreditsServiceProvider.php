@@ -9,6 +9,7 @@ use RoundlyConsulting\Credits\Commands\ExpireCreditHoldsCommand;
 use RoundlyConsulting\Credits\Commands\ModifyCreditsCommand;
 use RoundlyConsulting\Credits\Commands\ResetCreditsCommand;
 use RoundlyConsulting\Credits\Support\CreditModel;
+use RoundlyConsulting\Credits\Support\CreditParents;
 use RoundlyConsulting\Credits\Support\CreditsConfig;
 use RoundlyConsulting\Money\Exceptions\InvalidMoneyConfiguration;
 use RoundlyConsulting\Money\Support\RoundingModes;
@@ -51,6 +52,7 @@ final class CreditsServiceProvider extends PackageServiceProvider
                 'Rounding' => self::rounding(),
                 'Modifiable resolvers' => self::modifiableResolvers(),
                 'Holds' => self::orInvalid(static fn (): string => CreditsConfig::holdsEnabled() ? 'ENABLED' : 'DISABLED'),
+                'Parents' => self::orInvalid(static fn (): string => CreditsConfig::parentsEnabled() ? 'ENABLED (max depth '.CreditsConfig::parentsMaxDepth().')' : 'DISABLED'),
                 'Hold expiry' => self::orInvalid(static function (): string {
                     $minutes = CreditsConfig::holdExpireAfterMinutes();
 
@@ -64,6 +66,7 @@ final class CreditsServiceProvider extends PackageServiceProvider
         parent::register();
 
         $this->app->singleton(CreditsManager::class);
+        $this->app->singleton(CreditParents::class);
     }
 
     public function boot(): void

@@ -7,8 +7,11 @@ namespace RoundlyConsulting\Credits\Actions;
 use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Credits\DataTransferObjects\CreditChangeData;
 use RoundlyConsulting\Credits\Events\CreditsModified;
+use RoundlyConsulting\Credits\Exceptions\InsufficientCreditsException;
+use RoundlyConsulting\Credits\Exceptions\InvalidCreditParentException;
 use RoundlyConsulting\Credits\Interfaces\Creditable;
 use RoundlyConsulting\Credits\Models\Credit;
+use RoundlyConsulting\Credits\Support\CreditParents;
 use RoundlyConsulting\Credits\Support\LedgerBounds;
 use RoundlyConsulting\Credits\Support\LedgerConnection;
 use RoundlyConsulting\Credits\Support\OverdraftGuard;
@@ -22,6 +25,11 @@ use RoundlyConsulting\Credits\Support\OwnerLock;
  * may not take the bucket's available balance (the balance minus its active holds, when holds
  * are on) below `credits.minimum_balance` — and the event carries the exact balance this
  * change produced.
+ *
+ * A debit of an owner with credit parents is a debit of its whole chain: the chain is locked
+ * from the top down, every level is guarded (the owner's first, so a refusal names the
+ * nearest owner that blocks), and one row is written per level, with CreditsModified for each.
+ * The owner's row is returned. A grant (a positive amount) stays with the owner.
  */
 final readonly class ModifyCreditsAction
 {
@@ -29,44 +37,61 @@ final readonly class ModifyCreditsAction
         private GetCreditsBalanceAction $balance,
         private GetCreditsHeldAction $held,
         private OwnerLock $lock,
+        private CreditParents $parents,
     ) {}
 
-    public function execute(Model&Creditable $creditable, CreditChangeData $data): Credit
+    /**
+     * @param  bool  $withinParents  @internal false: this owner only, whatever its parents —
+     *                               a reset, or one level of a capture
+     *
+     * @throws InsufficientCreditsException when a level's balance would breach the minimum
+     * @throws InvalidCreditParentException when the owner's parents cannot be walked
+     */
+    public function execute(Model&Creditable $creditable, CreditChangeData $data, bool $withinParents = true): Credit
     {
-        $balance = 0;
+        $chain = $withinParents && $data->amount < 0 ? $this->parents->chain($creditable) : [$creditable];
+        /** @var list<array{Model&Creditable, Credit, int}> $levels */
+        $levels = [];
 
-        /** @var Credit $credit */
-        $credit = LedgerConnection::of($creditable)->transaction(function () use ($creditable, $data, &$balance): Credit {
-            $this->lock->acquire($creditable);
+        LedgerConnection::of($creditable)->transaction(function () use ($creditable, $chain, $data, &$levels): void {
+            $levels = [];
+            $bucket = $data->resolvedBucket();
 
-            $available = $this->balance->execute(
-                $creditable,
-                lockForUpdate: true,
-                bucket: $data->resolvedBucket(),
-            );
+            $this->lock->acquireChain($chain);
 
-            // Held credits are not spendable: a guarded debit decides on the balance minus the
-            // active holds, read under the same lock. Read only when the guard applies.
-            if (OverdraftGuard::applies($data->amount, $data->allowOverdraft)) {
-                OverdraftGuard::check(
-                    $creditable,
-                    LedgerBounds::available($available, $this->held->execute($creditable, $data->resolvedBucket(), lockForUpdate: true), $data->resolvedBucket()),
-                    $data->amount,
-                    $data->allowOverdraft,
-                );
+            $balances = [];
+
+            foreach ($chain as $depth => $owner) {
+                $balances[$depth] = $this->balance->execute($owner, lockForUpdate: true, bucket: $bucket);
+
+                // Held credits are not spendable: a guarded debit decides on the balance minus the
+                // active holds, read under the same lock. Read only when the guard applies.
+                if (OverdraftGuard::applies($data->amount, $data->allowOverdraft)) {
+                    OverdraftGuard::check(
+                        $owner,
+                        LedgerBounds::available($balances[$depth], $this->held->execute($owner, $bucket, lockForUpdate: true), $bucket),
+                        $data->amount,
+                        $data->allowOverdraft,
+                        $creditable,
+                    );
+                }
+
+                // Checked before any row is written: a result outside int64 is refused, nothing written.
+                $balances[$depth] = LedgerBounds::balanceAfter($balances[$depth], $data->amount, $bucket);
             }
 
-            // Checked before the row is written: a result outside int64 is refused, nothing written.
-            $balance = LedgerBounds::balanceAfter($available, $data->amount, $data->resolvedBucket());
+            foreach ($chain as $depth => $owner) {
+                /** @var Credit $credit */
+                $credit = $owner->credits()->create($data->toAttributes());
 
-            /** @var Credit $credit */
-            $credit = $creditable->credits()->create($data->toAttributes());
-
-            return $credit;
+                $levels[] = [$owner, $credit, $balances[$depth]];
+            }
         }, OwnerLock::ATTEMPTS);
 
-        CreditsModified::dispatch($creditable, $credit, $balance);
+        foreach ($levels as [$owner, $credit, $balance]) {
+            CreditsModified::dispatch($owner, $credit, $balance);
+        }
 
-        return $credit;
+        return $levels[0][1];
     }
 }

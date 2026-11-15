@@ -90,6 +90,18 @@ final class CreditsConfig
         return $minutes === 0 ? null : $minutes;
     }
 
+    /** Whether owners may have parents whose balances cap theirs (`credits.parents.enabled`). */
+    public static function parentsEnabled(): bool
+    {
+        return Config::boolean('credits.parents.enabled');
+    }
+
+    /** How many ancestors an owner's chain may have (`credits.parents.max_depth`, 1–64). */
+    public static function parentsMaxDepth(): int
+    {
+        return Config::integer('credits.parents.max_depth', 8, min: 1, max: 64);
+    }
+
     /** Not set: absent, null or a blank string (`''` or whitespace — a host's `KEY=`). */
     public static function blank(mixed $value): bool
     {

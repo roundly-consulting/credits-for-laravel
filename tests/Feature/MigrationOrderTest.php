@@ -8,8 +8,9 @@ use RoundlyConsulting\Credits\Tests\Fixtures\User;
 use RoundlyConsulting\Testing\Database\DriverMatrix;
 
 /**
- * Credits ships three migration files — the `credits` ledger with its `credit_locks`
- * owner-lock table, the `credit_holds` reservations and the `credit_resets` period markers —
+ * Credits ships four migration files — the `credits` ledger with its `credit_locks`
+ * owner-lock table, the `credit_holds` reservations, the `credit_resets` period markers and
+ * the columns linking a hold's levels on owners with credit parents —
  * and zero foreign keys: every table keys its owner through a polymorphic `creditable` morph, which is deliberately unconstrained because a host's
  * creditable entity can live in any table.
  *
@@ -40,7 +41,7 @@ it('never auto-loads its migration — the host publishes it', function (): void
 });
 
 it('publishes its migration timestamp-injected into the host', function (): void {
-    expect(CreditsServiceProvider::class)->toPublishMigrationsTimestamped('credits-migrations', 3);
+    expect(CreditsServiceProvider::class)->toPublishMigrationsTimestamped('credits-migrations', 4);
 });
 
 /**
@@ -51,7 +52,7 @@ it('publishes its migration timestamp-injected into the host', function (): void
  * passes and proves nothing.
  */
 it('applies its migration on postgres', function () use ($migrations): void {
-    expect($migrations)->toApplyOnConnection('pgsql', migrations: 3);
+    expect($migrations)->toApplyOnConnection('pgsql', migrations: 4);
 })->skip(fn (): bool => ! test()->connectionAvailable('pgsql'), 'no postgres connection available');
 
 /**

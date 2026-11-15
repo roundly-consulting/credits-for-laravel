@@ -27,11 +27,13 @@ it('registers every publish tag', function (string $tag): void {
 it('publishes its migrations timestamp-injected into the host', function (): void {
     $paths = ServiceProvider::pathsToPublish(CreditsServiceProvider::class, 'credits-migrations');
 
-    expect($paths)->toHaveCount(3);
+    expect($paths)->toHaveCount(4);
 
     $published = [];
+    $targets = [];
 
     foreach ($paths as $source => $target) {
+        $targets[basename((string) $source)] = basename((string) $target);
         expect(dirname((string) $target))->toBe(database_path('migrations'))
             ->and(basename((string) $target))->toMatch('/^\d{4}_\d{2}_\d{2}_\d{6}_'.preg_quote(basename((string) $source), '/').'$/');
 
@@ -40,7 +42,9 @@ it('publishes its migrations timestamp-injected into the host', function (): voi
 
     sort($published);
 
-    expect($published)->toBe(['create_credit_holds_table.php', 'create_credit_resets_table.php', 'create_credits_table.php']);
+    expect($published)->toBe(['create_credit_holds_table.php', 'create_credit_resets_table.php', 'create_credits_table.php', 'link_credit_holds_to_their_origin.php'])
+        // The ALTER publishes after the table it alters, so the host runs them in that order.
+        ->and($targets['link_credit_holds_to_their_origin.php'])->toBeGreaterThan($targets['create_credit_holds_table.php']);
 });
 
 it('never auto-loads its migrations — the host must publish them', function (): void {

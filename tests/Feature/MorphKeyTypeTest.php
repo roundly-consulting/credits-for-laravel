@@ -144,7 +144,7 @@ function runHoldAndResetMigrations(): void
     Schema::dropIfExists('credit_holds');
     Schema::dropIfExists('credit_resets');
 
-    foreach (['create_credit_holds_table.php', 'create_credit_resets_table.php'] as $file) {
+    foreach (['create_credit_holds_table.php', 'link_credit_holds_to_their_origin.php', 'create_credit_resets_table.php'] as $file) {
         $migration = require __DIR__.'/../../database/migrations/'.$file;
         $migration->up();
     }
@@ -159,7 +159,8 @@ it('keys the holds and the reset markers on the creditable axis', function (stri
     expect(morphKtColumn('credit_holds', 'creditable_id')['type'])->toBe($expected)
         ->and(morphKtColumn('credit_resets', 'creditable_id')['type'])->toBe($expected)
         ->and(morphKtColumn('credit_holds', 'id')['type'])->toBe('bigint')
-        ->and(morphKtColumn('credit_holds', 'credit_id')['type'])->toBe('bigint');
+        ->and(morphKtColumn('credit_holds', 'credit_id')['type'])->toBe('bigint')
+        ->and(morphKtColumn('credit_holds', 'origin_hold_id')['type'])->toBe('bigint');
 })->with([
     'bigint' => ['bigint', 'bigint'],
     'uuid' => ['uuid', 'uuid'],

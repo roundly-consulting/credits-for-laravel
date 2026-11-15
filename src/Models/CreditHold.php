@@ -35,6 +35,8 @@ use RoundlyConsulting\Credits\Enums\CreditHoldStatus;
  * @property CarbonInterface $created_at
  * @property CarbonInterface $updated_at
  * @property CarbonInterface|null $deleted_at
+ * @property int|string|null $origin_hold_id the hold this one is an ancestor's level of; null on an origin
+ * @property int $chain_depth 0 on the owner the hold was made for, 1 on its parent, …
  */
 final class CreditHold extends Model
 {
@@ -65,13 +67,31 @@ final class CreditHold extends Model
     }
 
     /**
+     * The hold this one is an ancestor's level of, by key; null on a hold the call made itself.
+     * Read from the raw attributes, so a hold loaded before the linking migration ran (or
+     * under strict models) is simply its own origin.
+     */
+    public function originKey(): int|string|null
+    {
+        $origin = $this->getAttributes()['origin_hold_id'] ?? null;
+
+        return is_int($origin) || is_string($origin) ? $origin : null;
+    }
+
+    /** Whether this is an ancestor's level of another hold, resolved only through that one. */
+    public function isLinked(): bool
+    {
+        return $this->originKey() !== null;
+    }
+
+    /**
      * Capture the hold through the manager — `Credits::capture($this, …)`.
      *
      * @param  array<string, mixed>|null  $meta
      */
-    public function capture(?int $amount = null, ?string $description = null, ?array $meta = null): Credit
+    public function capture(?int $amount = null, ?string $description = null, ?array $meta = null, bool $allowOverdraft = false): Credit
     {
-        return app(CreditsManager::class)->capture($this, $amount, $description, $meta);
+        return app(CreditsManager::class)->capture($this, $amount, $description, $meta, $allowOverdraft);
     }
 
     /**
@@ -146,6 +166,7 @@ final class CreditHold extends Model
         return [
             'amount' => 'integer',
             'captured_amount' => 'integer',
+            'chain_depth' => 'integer',
             'status' => CreditHoldStatus::class,
             'meta' => 'array',
             'expires_at' => 'immutable_datetime',

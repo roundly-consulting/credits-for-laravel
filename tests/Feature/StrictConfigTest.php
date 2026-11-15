@@ -140,3 +140,16 @@ it('reports a broken model, key type or overdraft setting as INVALID in about (s
     'primary key type' => ['credits.primary_key_type', 'serial', 'Primary key type'],
     'model' => ['credits.model', stdClass::class, 'Model'],
 ]);
+
+it('refuses a junk switch or depth for credit parents (strict config)', function (string $key, mixed $value): void {
+    config()->set('credits.parents.enabled', true);
+    config()->set("credits.parents.{$key}", $value);
+
+    expect(fn () => Credits::availableWithin($this->user))
+        ->toThrow(InvalidConfigurationException::class, "[credits.parents.{$key}]");
+})->with([
+    'switch word' => ['enabled', 'sometimes'],
+    'depth word' => ['max_depth', 'deep'],
+    'depth zero' => ['max_depth', 0],
+    'depth beyond the cap' => ['max_depth', 65],
+]);

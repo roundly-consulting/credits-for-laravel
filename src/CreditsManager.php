@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Credits;
 
 use Carbon\CarbonInterface;
+use Closure;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Model;
 use InvalidArgumentException;
@@ -13,6 +14,7 @@ use RoundlyConsulting\Credits\Actions\CaptureCreditHoldAction;
 use RoundlyConsulting\Credits\Actions\ExpireCreditHoldsAction;
 use RoundlyConsulting\Credits\Actions\FormatCreditsAction;
 use RoundlyConsulting\Credits\Actions\GetCreditsAvailableAction;
+use RoundlyConsulting\Credits\Actions\GetCreditsAvailableWithinAction;
 use RoundlyConsulting\Credits\Actions\GetCreditsBalanceAction;
 use RoundlyConsulting\Credits\Actions\GetCreditsHeldAction;
 use RoundlyConsulting\Credits\Actions\GetCreditsTotalAction;
@@ -25,14 +27,18 @@ use RoundlyConsulting\Credits\Actions\SetCreditsAction;
 use RoundlyConsulting\Credits\DataTransferObjects\CreditChangeData;
 use RoundlyConsulting\Credits\DataTransferObjects\CreditHoldData;
 use RoundlyConsulting\Credits\DataTransferObjects\CreditResetResult;
+use RoundlyConsulting\Credits\DataTransferObjects\CreditsAvailability;
 use RoundlyConsulting\Credits\Enums\ResetPeriod;
 use RoundlyConsulting\Credits\Exceptions\CreditHoldNotActiveException;
 use RoundlyConsulting\Credits\Exceptions\CreditHoldsDisabledException;
 use RoundlyConsulting\Credits\Exceptions\InsufficientCreditsException;
+use RoundlyConsulting\Credits\Exceptions\InvalidCreditParentException;
+use RoundlyConsulting\Credits\Exceptions\LinkedCreditHoldException;
 use RoundlyConsulting\Credits\Handles\CreditsScope;
 use RoundlyConsulting\Credits\Interfaces\Creditable;
 use RoundlyConsulting\Credits\Models\Credit;
 use RoundlyConsulting\Credits\Models\CreditHold;
+use RoundlyConsulting\Credits\Support\CreditParents;
 use RoundlyConsulting\Money\Currency;
 use RoundlyConsulting\Money\Exceptions\InvalidMoneyConfiguration;
 use RoundlyConsulting\Money\Exceptions\UnknownCurrency;
@@ -144,10 +150,34 @@ class CreditsManager
     }
 
     /**
+     * What the owner can spend within its credit parents: the smallest available balance along
+     * its chain, and the owner that has it. Its own available balance when it has no parents.
+     *
+     * @throws InvalidCreditParentException when the owner's parents cannot be walked
+     */
+    public function availableWithin(Model&Creditable $owner, ?string $bucket = null): CreditsAvailability
+    {
+        return $this->container->make(GetCreditsAvailableWithinAction::class)->execute($owner, $bucket);
+    }
+
+    /**
+     * Name every owner's credit parent with one resolver — for owners that cannot implement
+     * HasCreditParent themselves. Takes precedence over `creditParent()`; null removes it.
+     * Only read while `credits.parents.enabled` is on.
+     *
+     * @param  (Closure(Model&Creditable): ((Model&Creditable)|null))|null  $resolver
+     */
+    public function resolveParentsUsing(?Closure $resolver): void
+    {
+        $this->container->make(CreditParents::class)->resolveUsing($resolver);
+    }
+
+    /**
      * Reserve credits: lowers the available balance until the hold is captured, released or expires.
      *
      * @throws CreditHoldsDisabledException when `credits.holds.enabled` is off
-     * @throws InsufficientCreditsException when the hold would breach the minimum balance
+     *                                      On an owner with credit parents it must fit every level, and holds each one.
+     * @throws InsufficientCreditsException when the hold would breach the minimum balance of any level
      * @throws InvalidArgumentException when the amount is not positive or the expiry has passed
      */
     public function hold(Model&Creditable $owner, CreditHoldData $data): CreditHold
@@ -156,22 +186,26 @@ class CreditsManager
     }
 
     /**
-     * Debit a hold — all of it, or `$amount` of it with the rest released — and return the ledger row.
+     * Debit a hold — all of it, or `$amount` of it with the rest released, or more than was
+     * held when `$allowOverdraft` — and return the ledger row. A hold on an owner with credit
+     * parents is captured on every level.
      *
      * @param  array<string, mixed>|null  $meta
      *
      * @throws CreditHoldNotActiveException when it was captured, released or expired already
-     * @throws InvalidArgumentException when the amount is outside 1..the held amount
+     * @throws LinkedCreditHoldException when the hold is an ancestor's level of another one
+     * @throws InvalidArgumentException when the amount is outside 1..the held amount without an overdraft
      */
-    public function capture(CreditHold $hold, ?int $amount = null, ?string $description = null, ?array $meta = null): Credit
+    public function capture(CreditHold $hold, ?int $amount = null, ?string $description = null, ?array $meta = null, bool $allowOverdraft = false): Credit
     {
-        return $this->container->make(CaptureCreditHoldAction::class)->execute($hold, $amount, $description, $meta);
+        return $this->container->make(CaptureCreditHoldAction::class)->execute($hold, $amount, $description, $meta, $allowOverdraft);
     }
 
     /**
-     * Free a hold without writing to the ledger.
+     * Free a hold without writing to the ledger — on every level, for an owner with credit parents.
      *
      * @throws CreditHoldNotActiveException when it was captured, released or expired already
+     * @throws LinkedCreditHoldException when the hold is an ancestor's level of another one
      */
     public function release(CreditHold $hold): CreditHold
     {

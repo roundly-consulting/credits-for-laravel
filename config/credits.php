@@ -198,6 +198,32 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Parents (nested budgets)
+    |--------------------------------------------------------------------------
+    |
+    | An owner can sit inside another one — a person inside a team inside a
+    | company — and then its spending also counts against, and is capped by,
+    | every ancestor's balance in the same bucket. An owner names its parent by
+    | implementing HasCreditParent (`creditParent()`), or the app registers one
+    | resolver for every owner with Credits::resolveParentsUsing().
+    |
+    | Off by default: while off, no parent is ever looked up and every owner
+    | stands alone. Holds on owners with parents need the
+    | `link_credit_holds_to_their_origin` migration, so publish and run it
+    | before switching this on with holds enabled.
+    |
+    | "max_depth" is how many ancestors a chain may have; a longer chain (or a
+    | cycle) throws InvalidCreditParentException instead of being walked.
+    |
+    */
+
+    'parents' => [
+        'enabled' => env('CREDITS_PARENTS', false),
+        'max_depth' => env('CREDITS_PARENTS_MAX_DEPTH', 8),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Modifiable Resolvers
     |--------------------------------------------------------------------------
     |

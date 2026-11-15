@@ -12,6 +12,7 @@ use RoundlyConsulting\Credits\CreditsManager;
 use RoundlyConsulting\Credits\DataTransferObjects\CreditChangeData;
 use RoundlyConsulting\Credits\DataTransferObjects\CreditHoldData;
 use RoundlyConsulting\Credits\DataTransferObjects\CreditResetResult;
+use RoundlyConsulting\Credits\DataTransferObjects\CreditsAvailability;
 use RoundlyConsulting\Credits\Enums\ResetPeriod;
 use RoundlyConsulting\Credits\Exceptions\BucketNotDenominatedException;
 use RoundlyConsulting\Credits\Exceptions\CreditHoldNotActiveException;
@@ -158,6 +159,15 @@ final readonly class CreditsScope
     }
 
     /**
+     * What this bucket can spend within the owner's credit parents: the chain's smallest
+     * available balance and the owner that has it.
+     */
+    public function availableWithin(): CreditsAvailability
+    {
+        return $this->manager->availableWithin($this->owner, $this->bucket);
+    }
+
+    /**
      * Whether the available balance covers `$amount`.
      */
     public function hasAvailable(int $amount = 1): bool
@@ -188,7 +198,8 @@ final readonly class CreditsScope
     }
 
     /**
-     * Capture one of this owner's holds — whatever bucket it is in — in full or by `$amount`.
+     * Capture one of this owner's holds — whatever bucket it is in — in full or by `$amount`;
+     * after `allowOverdraft()`, by more than was held.
      *
      * @param  array<string, mixed>|null  $meta
      *
@@ -197,7 +208,7 @@ final readonly class CreditsScope
      */
     public function capture(CreditHold $hold, ?int $amount = null, ?string $description = null, ?array $meta = null): Credit
     {
-        return $this->manager->capture($this->owned($hold), $amount, $description, $meta);
+        return $this->manager->capture($this->owned($hold), $amount, $description, $meta, $this->allowOverdraft);
     }
 
     /**

@@ -13,6 +13,7 @@ use RoundlyConsulting\Credits\DataTransferObjects\CreditHoldData;
 use RoundlyConsulting\Credits\Enums\CreditHoldStatus;
 use RoundlyConsulting\Credits\Exceptions\CreditHoldNotActiveException;
 use RoundlyConsulting\Credits\Exceptions\CreditHoldsDisabledException;
+use RoundlyConsulting\Credits\Exceptions\LinkedCreditHoldException;
 use RoundlyConsulting\Credits\Interfaces\Creditable;
 use RoundlyConsulting\Credits\Models\CreditHold;
 
@@ -67,19 +68,49 @@ final class CreditHolds
     }
 
     /**
-     * The amount a capture takes: the whole hold, or a part of it.
+     * The amount a capture takes: the whole hold, or a part of it — or, with an overdraft
+     * allowed, more than was held.
      *
      * @throws InvalidArgumentException
      */
-    public static function captureAmount(CreditHold $hold, ?int $amount): int
+    public static function captureAmount(CreditHold $hold, ?int $amount, bool $allowOverdraft = false): int
     {
         $amount ??= $hold->amount;
 
-        if ($amount < 1 || $amount > $hold->amount) {
-            throw new InvalidArgumentException("A capture takes 1 to {$hold->amount} of hold [{$hold->getKey()}], {$amount} given; release() frees a hold without a capture.");
+        if ($amount < 1 || ($amount > $hold->amount && ! $allowOverdraft)) {
+            throw new InvalidArgumentException("A capture takes 1 to {$hold->amount} of hold [{$hold->getKey()}], {$amount} given; release() frees a hold without a capture, and allowOverdraft captures more than was held.");
         }
 
         return $amount;
+    }
+
+    /**
+     * @throws LinkedCreditHoldException when the hold is an ancestor's level of another one
+     */
+    public static function ensureOrigin(CreditHold $hold): void
+    {
+        if ($hold->isLinked()) {
+            throw new LinkedCreditHoldException($hold);
+        }
+    }
+
+    /**
+     * The ancestors' levels of a hold, top level first — the order their owners are locked in.
+     * None while `credits.parents.enabled` is off (the linking columns may not even exist).
+     *
+     * @return list<CreditHold>
+     */
+    public static function linked(CreditHold $origin): array
+    {
+        if (! CreditsConfig::parentsEnabled()) {
+            return [];
+        }
+
+        return array_values(CreditHold::on($origin->getConnectionName())
+            ->where('origin_hold_id', $origin->getKey())
+            ->orderByDesc('chain_depth')
+            ->get()
+            ->all());
     }
 
     /**

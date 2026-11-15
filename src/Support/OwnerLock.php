@@ -47,6 +47,21 @@ final class OwnerLock
     }
 
     /**
+     * The locks of a whole chain of owners (owner first, then its ancestors, as
+     * {@see CreditParents::chain()} lists it), taken from the top down: every write on a chain
+     * takes them in this one order, so two writes on sibling owners queue on their shared
+     * ancestor instead of deadlocking — and decide one after the other on its balance.
+     *
+     * @param  list<Model&Creditable>  $chain
+     */
+    public function acquireChain(array $chain): void
+    {
+        foreach (array_reverse($chain) as $owner) {
+            $this->acquire($owner);
+        }
+    }
+
+    /**
      * The same lock, named by the owner's morph pair — for a write that starts from a ledger
      * record (a hold the expiry sweep finds) rather than from a loaded owner, which may be gone.
      */

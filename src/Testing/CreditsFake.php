@@ -8,17 +8,21 @@ use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 use PHPUnit\Framework\Assert;
+use RoundlyConsulting\Credits\Actions\GetCreditsAvailableWithinAction;
 use RoundlyConsulting\Credits\CreditsManager;
 use RoundlyConsulting\Credits\DataTransferObjects\CreditChangeData;
 use RoundlyConsulting\Credits\DataTransferObjects\CreditHoldData;
 use RoundlyConsulting\Credits\DataTransferObjects\CreditResetResult;
+use RoundlyConsulting\Credits\DataTransferObjects\CreditsAvailability;
 use RoundlyConsulting\Credits\Enums\CreditHoldStatus;
 use RoundlyConsulting\Credits\Enums\ResetPeriod;
 use RoundlyConsulting\Credits\Exceptions\InsufficientCreditsException;
+use RoundlyConsulting\Credits\Exceptions\LinkedCreditHoldException;
 use RoundlyConsulting\Credits\Interfaces\Creditable;
 use RoundlyConsulting\Credits\Models\Credit;
 use RoundlyConsulting\Credits\Models\CreditHold;
 use RoundlyConsulting\Credits\Support\CreditHolds;
+use RoundlyConsulting\Credits\Support\CreditParents;
 use RoundlyConsulting\Credits\Support\CreditResets;
 use RoundlyConsulting\Credits\Support\CreditsConfig;
 use RoundlyConsulting\Credits\Support\Int64;
@@ -45,6 +49,9 @@ use RoundlyConsulting\Money\Exceptions\AmountOverflow;
  * one frees it. A hold that was saved before the fake was installed can be captured or
  * released too — its row is left untouched. A periodic reset is idempotent per period, in
  * memory and against the reset markers already in the database.
+ *
+ * Credit parents are walked as the real ledger walks them: a debit or a hold on an owner with
+ * parents is checked and recorded on every level, and capturing or releasing it does the same.
  */
 final class CreditsFake extends CreditsManager
 {
@@ -60,7 +67,9 @@ final class CreditsFake extends CreditsManager
      * Holds the fake made, and saved holds it resolved; `real` marks the latter, whose row
      * still counts as held in the database.
      *
-     * @var list<array{hold: CreditHold, owner: Model&Creditable, real: bool}>
+     * `origin` is set on an ancestor's level of a hold, and names the hold the call made.
+     *
+     * @var list<array{hold: CreditHold, owner: Model&Creditable, real: bool, origin?: CreditHold}>
      */
     private array $holds = [];
 
@@ -105,10 +114,14 @@ final class CreditsFake extends CreditsManager
      */
     public function modify(Model&Creditable $owner, CreditChangeData $data): Credit
     {
-        $credit = $this->apply($owner, $data);
+        // A debit of an owner with credit parents is recorded on every level, as the ledger writes it.
+        $chain = $data->amount < 0 ? $this->chain($owner) : [$owner];
+        $credit = $this->applyChain($chain, $data);
 
-        // Signed: the magnitude of PHP_INT_MIN is not an int.
-        $this->record($data->amount < 0 ? 'deducted' : 'added', $owner, $data->amount, $data->resolvedBucket());
+        foreach ($chain as $level) {
+            // Signed: the magnitude of PHP_INT_MIN is not an int.
+            $this->record($data->amount < 0 ? 'deducted' : 'added', $level, $data->amount, $data->resolvedBucket());
+        }
 
         return $credit;
     }
@@ -134,7 +147,7 @@ final class CreditsFake extends CreditsManager
             bucket: $bucket,
         );
 
-        $credit = $data->amount === 0 ? null : $this->apply($owner, $data);
+        $credit = $data->amount === 0 ? null : $this->applyChain($data->amount < 0 ? $this->chain($owner) : [$owner], $data);
 
         $this->record('set', $owner, $amount, $data->resolvedBucket());
 
@@ -175,8 +188,18 @@ final class CreditsFake extends CreditsManager
     }
 
     /**
+     * The chain's smallest available balance, read from the fake's balances.
+     */
+    public function availableWithin(Model&Creditable $owner, ?string $bucket = null): CreditsAvailability
+    {
+        return $this->container->make(GetCreditsAvailableWithinAction::class)
+            ->execute($owner, $bucket, fn (Model&Creditable $level, ?string $bucket): int => $this->available($level, $bucket));
+    }
+
+    /**
      * Records the hold and returns it unsaved; the overdraft guard applies to the fake's
-     * available balance, as the real one's does.
+     * available balance, as the real one's does. On an owner with credit parents every level
+     * is checked and held, and recorded.
      */
     public function hold(Model&Creditable $owner, CreditHoldData $data): CreditHold
     {
@@ -185,26 +208,42 @@ final class CreditsFake extends CreditsManager
         $now = CarbonImmutable::now();
         $expiresAt = CreditHolds::expiry($data, $now);
         $bucket = $data->resolvedBucket();
-        $available = $this->available($owner, $bucket);
+        $chain = $this->chain($owner);
 
-        OverdraftGuard::check($owner, $available, -$data->amount, $data->allowOverdraft);
-        LedgerBounds::available($available, $data->amount, $bucket);
+        foreach ($chain as $level) {
+            $available = $this->available($level, $bucket);
 
-        $hold = new CreditHold([
-            'creditable_type' => $owner->getMorphClass(),
-            'creditable_id' => $owner->getKey(),
-            'bucket' => $bucket,
-            'amount' => $data->amount,
-            'status' => CreditHoldStatus::Held,
-            'description' => $data->description,
-            'meta' => $data->meta,
-            'expires_at' => $expiresAt,
-        ]);
+            OverdraftGuard::check($level, $available, -$data->amount, $data->allowOverdraft, $owner);
+            LedgerBounds::available($available, $data->amount, $bucket);
+        }
 
-        $this->holds[] = ['hold' => $hold, 'owner' => $owner, 'real' => false];
-        $this->record('held', $owner, $data->amount, $bucket);
+        $origin = null;
 
-        return $hold;
+        foreach ($chain as $depth => $level) {
+            $hold = new CreditHold([
+                'creditable_type' => $level->getMorphClass(),
+                'creditable_id' => $level->getKey(),
+                'bucket' => $bucket,
+                'amount' => $data->amount,
+                'status' => CreditHoldStatus::Held,
+                'description' => $data->description,
+                'meta' => $data->meta,
+                'expires_at' => $expiresAt,
+            ]);
+
+            if ($origin === null) {
+                $origin = $hold;
+                $this->holds[] = ['hold' => $hold, 'owner' => $level, 'real' => false];
+            } else {
+                $hold->forceFill(['chain_depth' => $depth]);
+                $this->holds[] = ['hold' => $hold, 'owner' => $level, 'real' => false, 'origin' => $origin];
+            }
+
+            $this->record('held', $level, $data->amount, $bucket);
+        }
+
+        /** @var CreditHold $origin */
+        return $origin;
     }
 
     /**
@@ -212,26 +251,32 @@ final class CreditsFake extends CreditsManager
      *
      * @param  array<string, mixed>|null  $meta
      */
-    public function capture(CreditHold $hold, ?int $amount = null, ?string $description = null, ?array $meta = null): Credit
+    public function capture(CreditHold $hold, ?int $amount = null, ?string $description = null, ?array $meta = null, bool $allowOverdraft = false): Credit
     {
         $entry = $this->holdEntry($hold);
         $tracked = $entry['hold'];
-        $captured = CreditHolds::captureAmount($tracked, $amount);
+        $captured = CreditHolds::captureAmount($tracked, $amount, $allowOverdraft);
         $now = CarbonImmutable::now();
 
         CreditHolds::ensureActive($tracked, $now);
 
-        $credit = $this->apply($entry['owner'], new CreditChangeData(
-            amount: -$captured,
-            description: $description ?? $tracked->description,
-            meta: $meta ?? $tracked->meta,
-            allowOverdraft: true,
-            bucket: $tracked->bucket,
-        ));
+        $credit = null;
 
-        $this->resolveHold($hold, $tracked, ['status' => CreditHoldStatus::Captured, 'captured_amount' => $captured, 'resolved_at' => $now]);
-        $this->record('captured', $entry['owner'], $captured, $tracked->bucket);
+        foreach ($this->group($entry) as $level) {
+            $levelCredit = $this->apply($level['owner'], new CreditChangeData(
+                amount: -$captured,
+                description: $description ?? $tracked->description,
+                meta: $meta ?? $tracked->meta,
+                allowOverdraft: true,
+                bucket: $tracked->bucket,
+            ));
+            $credit ??= $levelCredit;
 
+            $this->resolveHold($level['hold'] === $tracked ? $hold : $level['hold'], $level['hold'], ['status' => CreditHoldStatus::Captured, 'captured_amount' => $captured, 'resolved_at' => $now]);
+            $this->record('captured', $level['owner'], $captured, $tracked->bucket);
+        }
+
+        /** @var Credit $credit */
         return $credit;
     }
 
@@ -246,8 +291,10 @@ final class CreditsFake extends CreditsManager
 
         CreditHolds::ensureActive($tracked, $now);
 
-        $this->resolveHold($hold, $tracked, ['status' => CreditHoldStatus::Released, 'resolved_at' => $now]);
-        $this->record('released', $entry['owner'], $tracked->amount, $tracked->bucket);
+        foreach ($this->group($entry) as $level) {
+            $this->resolveHold($level['hold'] === $tracked ? $hold : $level['hold'], $level['hold'], ['status' => CreditHoldStatus::Released, 'resolved_at' => $now]);
+            $this->record('released', $level['owner'], $level['hold']->amount, $level['hold']->bucket);
+        }
 
         return $hold;
     }
@@ -439,6 +486,80 @@ final class CreditsFake extends CreditsManager
     public function assertNothingModified(): void
     {
         Assert::assertSame([], $this->recorded, 'Expected no credits to be modified, but some were.');
+    }
+
+    /**
+     * The owner's chain of credit parents, as the real ledger walks it.
+     *
+     * @return non-empty-list<Model&Creditable>
+     */
+    private function chain(Model&Creditable $owner): array
+    {
+        return $this->container->make(CreditParents::class)->chain($owner);
+    }
+
+    /**
+     * One change on every owner of a chain: every level checked first, then every level
+     * written, as the real ledger does in its one transaction. Returns the owner's row.
+     *
+     * @param  non-empty-list<Model&Creditable>  $chain
+     */
+    private function applyChain(array $chain, CreditChangeData $data): Credit
+    {
+        $owner = $chain[0];
+        $bucket = $data->resolvedBucket();
+
+        foreach ($chain as $level) {
+            $balance = $this->balance($level, $bucket);
+
+            if (OverdraftGuard::applies($data->amount, $data->allowOverdraft)) {
+                OverdraftGuard::check($level, LedgerBounds::available($balance, $this->held($level, $bucket), $bucket), $data->amount, $data->allowOverdraft, $owner);
+            }
+
+            LedgerBounds::balanceAfter($balance, $data->amount, $bucket);
+        }
+
+        $credit = null;
+
+        foreach ($chain as $level) {
+            $levelCredit = $this->apply($level, new CreditChangeData($data->amount, $data->description, $data->meta, allowOverdraft: true, bucket: $data->bucket));
+            $credit ??= $levelCredit;
+        }
+
+        /** @var Credit $credit */
+        return $credit;
+    }
+
+    /**
+     * Every level of a hold, the one the call made first.
+     *
+     * @param  array{hold: CreditHold, owner: Model&Creditable, real: bool, origin?: CreditHold}  $entry
+     * @return list<array{hold: CreditHold, owner: Model&Creditable, real: bool, origin?: CreditHold}>
+     *
+     * @throws LinkedCreditHoldException when the hold is an ancestor's level of another one
+     */
+    private function group(array $entry): array
+    {
+        if (isset($entry['origin']) || $entry['hold']->isLinked()) {
+            throw new LinkedCreditHoldException($entry['hold']);
+        }
+
+        $group = [$entry];
+
+        foreach ($this->holds as $other) {
+            if (($other['origin'] ?? null) === $entry['hold'] && $other['hold']->status === CreditHoldStatus::Held) {
+                $group[] = $other;
+            }
+        }
+
+        // A saved hold the fake meets: its saved levels, tracked from now on.
+        if ($entry['real']) {
+            foreach (CreditHolds::linked($entry['hold']) as $linked) {
+                $group[] = $this->holdEntry($linked);
+            }
+        }
+
+        return $group;
     }
 
     /**

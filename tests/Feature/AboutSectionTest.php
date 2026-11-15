@@ -106,3 +106,17 @@ it('reports a misconfigured hold setting instead of failing the about command', 
         mustRender: ['Holds', 'Hold expiry', 'INVALID'],
     );
 });
+
+it('reports credit parents and their depth limit', function (mixed $enabled, mixed $depth, string $renders): void {
+    config()->set('credits.parents.enabled', $enabled);
+    config()->set('credits.parents.max_depth', $depth);
+
+    expect('credits')->toLeakNoSecrets(
+        secrets: [User::class],
+        mustRender: ['Parents', $renders],
+    );
+})->with([
+    'off by default' => [null, null, 'DISABLED'],
+    'on' => ['on', '4', 'ENABLED (max depth 4)'],
+    'misconfigured' => ['sometimes', '4', 'INVALID'],
+]);
