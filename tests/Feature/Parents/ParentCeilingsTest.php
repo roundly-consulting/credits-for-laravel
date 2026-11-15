@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -332,3 +333,20 @@ it('skips a level that was resolved on its own', function (string $verb, CreditH
     'capture' => ['capture', CreditHoldStatus::Captured],
     'release' => ['release', CreditHoldStatus::Released],
 ]);
+
+it('resolves a nested hold under preventLazyLoading, whichever way the hold was loaded', function (string $verb): void {
+    // The suite's TestCase refuses lazy loading; a hold taken from a collection is the strict case.
+    Credits::for($this->person)->hold(30, CarbonImmutable::now()->addMinute());
+    Credits::for($this->person)->hold(5);
+    $hold = CreditHold::query()->where('chain_depth', 0)->orderBy('id')->get()->first();
+
+    match ($verb) {
+        'capture' => Credits::capture($hold),
+        'release' => Credits::release($hold),
+        'expire' => Credits::expireHolds(CarbonImmutable::now()->addHour()),
+    };
+
+    expect(Model::preventsLazyLoading())->toBeTrue()
+        ->and(CreditHold::query()->where('amount', 30)->pluck('status')->unique()->all())->toHaveCount(1)
+        ->and(CreditHold::query()->where('amount', 30)->value('status'))->not->toBe(CreditHoldStatus::Held);
+})->with(['capture', 'release', 'expire']);

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Credits\Tests;
 
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\ServiceProvider;
 use RoundlyConsulting\Credits\CreditsServiceProvider;
 use RoundlyConsulting\Money\MoneyServiceProvider;
@@ -44,6 +45,24 @@ abstract class TestCase extends PackageTestCase
     protected function keepsMigratedSchema(): bool
     {
         return true;
+    }
+
+    /**
+     * Every test runs with lazy loading refused, as a Laravel app does outside production: a
+     * relation the package reads without eager-loading it fails the suite.
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        Model::preventLazyLoading();
+    }
+
+    protected function tearDown(): void
+    {
+        Model::preventLazyLoading(false);
+
+        parent::tearDown();
     }
 
     /**

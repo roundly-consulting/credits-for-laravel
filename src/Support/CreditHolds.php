@@ -106,7 +106,10 @@ final class CreditHolds
             return [];
         }
 
+        // Owners eager-loaded (one query per morph type): the levels come back as a collection,
+        // so reading each one's owner lazily would trip Model::preventLazyLoading().
         return array_values(CreditHold::on($origin->getConnectionName())
+            ->with('creditable')
             ->where('origin_hold_id', $origin->getKey())
             ->orderByDesc('chain_depth')
             ->get()
@@ -136,13 +139,15 @@ final class CreditHolds
     }
 
     /**
-     * The hold's owner, which a capture debits.
+     * The hold's owner, which a capture debits: the loaded relation, else one query. Never a
+     * lazy load, so a hold the host took from a collection works under
+     * Model::preventLazyLoading().
      *
      * @throws InvalidArgumentException when it is gone or not Creditable
      */
     public static function owner(CreditHold $hold): Model&Creditable
     {
-        $owner = $hold->creditable;
+        $owner = $hold->relationLoaded('creditable') ? $hold->getRelation('creditable') : $hold->creditable()->getResults();
 
         if (! $owner instanceof Model || ! $owner instanceof Creditable) {
             throw new InvalidArgumentException("The owner of credit hold [{$hold->getKey()}] is gone or not Creditable.");
