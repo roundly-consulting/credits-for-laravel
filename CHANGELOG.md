@@ -4,6 +4,36 @@ All notable changes to `credits-for-laravel` are documented in this file. The fo
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## 2.3.0 - 2026-11-16
+
+### Added
+
+- Extra ceilings outside the parent chain. A hold or debit can name more owners it must also fit, for example an AI
+  agent's own budget beside the person's chain: `Credits::for($person)->alsoWithin($agentBudget)->hold(...)`, or
+  `new CreditHoldData(..., alsoWithin: [$owner])` / `new CreditChangeData(..., alsoWithin: [$owner])`.
+  - Each extra owner (with its own credit parents, each owner once) is a level like a parent. It is checked in the
+    same transaction and gets a linked hold or debit.
+  - `capture()`, `release()` and `expireHolds()` resolve every level, and `allowOverdraft` on a capture beyond the
+    hold debits every level.
+  - Extra ceilings apply whether or not `credits.parents.enabled` is on.
+  - A ceiling on another ledger connection throws `InvalidCreditParentException`.
+- `InsufficientCreditsException::blockedByCeiling()`, set when an extra ceiling (or one of its parents) blocked the
+  call; `blockedByParent()` stays false then.
+- `availableWithin($owner, $bucket, alsoWithin: [...])` and `Credits::for($owner)->alsoWithin(...)->availableWithin()`.
+  `CreditsAvailability::$limitedByCeiling` says whether an extra ceiling sets the limit.
+
+### Changed
+
+- Every write on several owners takes their locks in one global order: nearest the top of its own chain first,
+  then by morph type and key. For a parent chain alone this is the same top-down order as 2.2, so two single
+  operations sharing owners can never deadlock.
+- A hold's other levels are found wherever the `link_credit_holds_to_their_origin` columns exist, rather than only
+  while parents are on. Switching parents off no longer strands a chained hold's levels.
+
+### Upgrade
+
+- Holds with extra ceilings need the `link_credit_holds_to_their_origin` migration from 2.2.0. Debits need none.
+
 ## 2.2.1 - 2026-11-15
 
 ### Fixed
