@@ -30,10 +30,11 @@ final class OverdraftGuard
     /**
      * @param  int  $amount  the signed change; only a negative one is guarded
      * @param  Model|null  $requestedBy  the owner the call was made on, when `$creditable` is one of its credit parents
+     * @param  bool  $ceiling  whether `$creditable` is an extra ceiling (`alsoWithin`) rather than a parent
      *
      * @throws InsufficientCreditsException
      */
-    public static function check(Model $creditable, int $spendable, int $amount, bool $allowOverdraft, ?Model $requestedBy = null): void
+    public static function check(Model $creditable, int $spendable, int $amount, bool $allowOverdraft, ?Model $requestedBy = null, bool $ceiling = false): void
     {
         if (! self::applies($amount, $allowOverdraft)) {
             return;
@@ -52,6 +53,7 @@ final class OverdraftGuard
                 available: $spendable,
                 minimum: $minimum,
                 requestedBy: $requestedBy,
+                ceiling: $ceiling,
             );
         }
     }

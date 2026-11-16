@@ -33,7 +33,8 @@ use RoundlyConsulting\Money\Exceptions\AmountOverflow;
  * from the top down, each level's available balance is checked (the owner's first, so a
  * refusal names the nearest owner that blocks), and one hold is written per level — the one
  * returned, and a linked hold on each ancestor that points back at it. CreditsHeld fires for
- * every level.
+ * every level. Extra ceilings (`alsoWithin`) are levels too, with their own parents: checked,
+ * held and linked the same way, all owners locked in the one global order.
  */
 final readonly class HoldCreditsAction
 {
@@ -56,27 +57,28 @@ final readonly class HoldCreditsAction
 
         $bucket = $data->resolvedBucket();
         $expiresAt = CreditHolds::expiry($data, CarbonImmutable::now());
-        $chain = $this->parents->chain($creditable);
+        $chain = $this->parents->levels($creditable, $data->alsoWithin);
         /** @var list<array{Model&Creditable, CreditHold, int}> $levels */
         $levels = [];
 
         LedgerConnection::of($creditable)->transaction(function () use ($creditable, $chain, $data, $bucket, $expiresAt, &$levels): void {
             $levels = [];
-            $this->lock->acquireChain($chain);
+            $this->lock->acquireLevels($chain);
 
             $after = [];
 
-            foreach ($chain as $depth => $owner) {
-                $available = $this->available->execute($owner, $bucket, lockForUpdate: true);
+            foreach ($chain as $depth => $level) {
+                $available = $this->available->execute($level->owner, $bucket, lockForUpdate: true);
 
-                OverdraftGuard::check($owner, $available, -$data->amount, $data->allowOverdraft, $creditable);
+                OverdraftGuard::check($level->owner, $available, -$data->amount, $data->allowOverdraft, $creditable, $level->ceiling);
 
                 $after[$depth] = LedgerBounds::available($available, $data->amount, $bucket);
             }
 
             $origin = null;
 
-            foreach ($chain as $depth => $owner) {
+            foreach ($chain as $depth => $level) {
+                $owner = $level->owner;
                 $attributes = [
                     'creditable_type' => $owner->getMorphClass(),
                     'creditable_id' => $owner->getKey(),

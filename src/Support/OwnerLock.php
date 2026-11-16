@@ -62,6 +62,20 @@ final class OwnerLock
     }
 
     /**
+     * The locks of every level a hold or debit must fit — a chain and its extra ceilings — in
+     * the one global order ({@see CreditParents::lockOrder()}). For a chain alone that is the
+     * same top-down order as {@see self::acquireChain()}.
+     *
+     * @param  list<CreditLevel>  $levels
+     */
+    public function acquireLevels(array $levels): void
+    {
+        foreach (CreditParents::lockOrder($levels) as $level) {
+            $this->acquire($level->owner);
+        }
+    }
+
+    /**
      * The same lock, named by the owner's morph pair — for a write that starts from a ledger
      * record (a hold the expiry sweep finds) rather than from a loaded owner, which may be gone.
      */

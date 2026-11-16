@@ -16,17 +16,19 @@ final readonly class CreditsAvailability
     /**
      * @param  int  $available  The chain's minimum available balance (balance minus active holds).
      * @param  Model&Creditable  $limitedBy  The owner with that minimum — the nearest one on a tie.
-     * @param  int  $levels  How many owners the chain has, the owner included.
+     * @param  int  $levels  How many owners the chain has, the owner and extra ceilings included.
+     * @param  bool  $limitedByCeiling  Whether an extra ceiling (`alsoWithin`), or one of its parents, sets the limit.
      */
     public function __construct(
         public int $available,
         public Model&Creditable $limitedBy,
         public int $levels = 1,
+        public bool $limitedByCeiling = false,
     ) {}
 
-    /** Whether an ancestor, not the owner itself, sets the limit. */
+    /** Whether an ancestor, not the owner itself or an extra ceiling, sets the limit. */
     public function limitedByParent(Model $owner): bool
     {
-        return ! $this->limitedBy->is($owner);
+        return ! $this->limitedByCeiling && ! $this->limitedBy->is($owner);
     }
 }

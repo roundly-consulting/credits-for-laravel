@@ -17,6 +17,7 @@ use RoundlyConsulting\Credits\Interfaces\Creditable;
 use RoundlyConsulting\Credits\Models\Credit;
 use RoundlyConsulting\Credits\Models\CreditHold;
 use RoundlyConsulting\Credits\Support\CreditHolds;
+use RoundlyConsulting\Credits\Support\CreditParents;
 use RoundlyConsulting\Credits\Support\LedgerConnection;
 use RoundlyConsulting\Credits\Support\OwnerLock;
 
@@ -40,6 +41,7 @@ final readonly class CaptureCreditHoldAction
     public function __construct(
         private ModifyCreditsAction $modify,
         private OwnerLock $lock,
+        private CreditParents $parents,
     ) {}
 
     /**
@@ -63,15 +65,9 @@ final readonly class CaptureCreditHoldAction
         LedgerConnection::of($owner)->transaction(function () use ($hold, $owner, $captured, $description, $meta, &$levels): void {
             $levels = [];
             $linked = CreditHolds::linked($hold);
-            $owners = [];
+            $owners = array_map(CreditHolds::owner(...), $linked);
 
-            // Top down, then the hold's own owner: the order every chain write locks in.
-            foreach ($linked as $level) {
-                $owners[] = CreditHolds::owner($level);
-                $this->lock->acquire($owners[array_key_last($owners)]);
-            }
-
-            $this->lock->acquire($owner);
+            CreditHolds::lockLevels($this->lock, $this->parents, LedgerConnection::of($owner), [...$linked, $hold]);
 
             $now = CarbonImmutable::now();
             $fresh = CreditHolds::reread($hold);

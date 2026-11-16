@@ -149,3 +149,29 @@ it('does not deadlock a child debit against a parent debit', function (): void {
         ->and(Credits::balance($this->company))->toBe(70)
         ->and(Credits::balance($this->alpha))->toBe(980);
 })->skip($notPostgres, 'needs a real engine (and pcntl + posix for the second process)');
+
+it('lets exactly one of two holds take an extra ceiling\'s last credits', function (?string $level): void {
+    parentIsolation($level);
+    // Two people in different budgets, sharing one agent's budget of 30.
+    $agent = Budget::under(null, 'Agent', 30);
+    $pid = 0;
+    $file = '';
+
+    DB::transaction(function () use ($agent, &$pid, &$file, $level): void {
+        Credits::for($this->alpha)->alsoWithin($agent)->hold(20);
+
+        [$pid, $file] = SecondSession::run(fn (): mixed => Credits::for(Budget::query()->findOrFail($this->beta->id))
+            ->alsoWithin(Budget::query()->findOrFail($agent->id))
+            ->hold(20)->id, $level);
+
+        SecondSession::waitUntilBlocked($file);
+    });
+
+    expect(SecondSession::outcome($pid, $file))->toBe('refused')
+        ->and(Credits::held($agent))->toBe(20)
+        ->and(Credits::held($this->beta))->toBe(0);
+})->with([
+    'read committed' => [null],
+    'repeatable read' => ['repeatable read'],
+    'serializable' => ['serializable'],
+])->skip($notPostgres, 'needs a real engine (and pcntl + posix for the second process)');

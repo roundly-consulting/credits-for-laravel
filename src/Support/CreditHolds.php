@@ -6,6 +6,7 @@ namespace RoundlyConsulting\Credits\Support;
 
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
+use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use InvalidArgumentException;
@@ -85,6 +86,39 @@ final class CreditHolds
     }
 
     /**
+     * Take the owner locks of a hold's levels in the one global order
+     * ({@see CreditParents::lockOrder()}), by morph pair: an owner that is gone is still locked.
+     *
+     * @param  list<CreditHold>  $holds
+     */
+    public static function lockLevels(OwnerLock $lock, CreditParents $parents, ConnectionInterface $connection, array $holds): void
+    {
+        $order = [];
+
+        foreach ($holds as $hold) {
+            $owner = $hold->relationLoaded('creditable') ? $hold->getRelation('creditable') : $hold->creditable()->getResults();
+            $depth = $owner instanceof Model && $owner instanceof Creditable ? $parents->depthOf($owner) : 0;
+            $order[] = [$depth, $hold->creditable_type, (string) $hold->creditable_id];
+        }
+
+        usort($order, static fn (array $a, array $b): int => $a <=> $b);
+
+        foreach ($order as [, $type, $id]) {
+            $lock->acquireFor($connection, $type, $id);
+        }
+    }
+
+    /**
+     * Forget which connections have the linking columns (tests that rebuild the schema).
+     *
+     * @internal
+     */
+    public static function forgetSchema(): void
+    {
+        self::$linkable = [];
+    }
+
+    /**
      * @throws LinkedCreditHoldException when the hold is an ancestor's level of another one
      */
     public static function ensureOrigin(CreditHold $hold): void
@@ -94,15 +128,20 @@ final class CreditHolds
         }
     }
 
+    /** @var array<string, bool> whether each connection's holds table has the linking columns */
+    private static array $linkable = [];
+
     /**
-     * The ancestors' levels of a hold, top level first — the order their owners are locked in.
-     * None while `credits.parents.enabled` is off (the linking columns may not even exist).
+     * The other levels of a hold — its owner's parents and any extra ceilings — top level first.
+     * None where the linking migration has not run (a host without parents or ceilings).
      *
      * @return list<CreditHold>
      */
     public static function linked(CreditHold $origin): array
     {
-        if (! CreditsConfig::parentsEnabled()) {
+        $connection = $origin->getConnection();
+
+        if (! (self::$linkable[(string) $connection->getName()] ??= $connection->getSchemaBuilder()->hasColumn($origin->getTable(), 'origin_hold_id'))) {
             return [];
         }
 

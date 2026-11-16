@@ -41,6 +41,8 @@ final readonly class CreditsScope
         private Model&Creditable $owner,
         private ?string $bucket = null,
         private bool $allowOverdraft = false,
+        /** @var list<Model&Creditable> */
+        private array $alsoWithin = [],
     ) {}
 
     /**
@@ -48,7 +50,7 @@ final readonly class CreditsScope
      */
     public function bucket(string $bucket): self
     {
-        return new self($this->manager, $this->owner, $bucket, $this->allowOverdraft);
+        return new self($this->manager, $this->owner, $bucket, $this->allowOverdraft, $this->alsoWithin);
     }
 
     /**
@@ -66,7 +68,17 @@ final readonly class CreditsScope
      */
     public function allowOverdraft(bool $allow = true): self
     {
-        return new self($this->manager, $this->owner, $this->bucket, $allow);
+        return new self($this->manager, $this->owner, $this->bucket, $allow, $this->alsoWithin);
+    }
+
+    /**
+     * The same scope, whose debits and holds must also fit these extra ceilings — an AI agent's
+     * own budget beside the person's chain of parents — and are written on them too. Added to any
+     * already named.
+     */
+    public function alsoWithin(Model&Creditable ...$owners): self
+    {
+        return new self($this->manager, $this->owner, $this->bucket, $this->allowOverdraft, [...$this->alsoWithin, ...array_values($owners)]);
     }
 
     public function balance(?CarbonInterface $at = null): int
@@ -127,6 +139,7 @@ final readonly class CreditsScope
             meta: $meta,
             allowOverdraft: $this->allowOverdraft,
             bucket: $this->bucket,
+            alsoWithin: $this->alsoWithin,
         ));
     }
 
@@ -164,7 +177,7 @@ final readonly class CreditsScope
      */
     public function availableWithin(): CreditsAvailability
     {
-        return $this->manager->availableWithin($this->owner, $this->bucket);
+        return $this->manager->availableWithin($this->owner, $this->bucket, $this->alsoWithin);
     }
 
     /**
@@ -194,6 +207,7 @@ final readonly class CreditsScope
             meta: $meta,
             allowOverdraft: $this->allowOverdraft,
             bucket: $this->bucket,
+            alsoWithin: $this->alsoWithin,
         ));
     }
 

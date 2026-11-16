@@ -11,6 +11,7 @@ use RoundlyConsulting\Credits\Exceptions\InsufficientCreditsException;
 use RoundlyConsulting\Credits\Exceptions\InvalidCreditParentException;
 use RoundlyConsulting\Credits\Interfaces\Creditable;
 use RoundlyConsulting\Credits\Models\Credit;
+use RoundlyConsulting\Credits\Support\CreditLevel;
 use RoundlyConsulting\Credits\Support\CreditParents;
 use RoundlyConsulting\Credits\Support\LedgerBounds;
 use RoundlyConsulting\Credits\Support\LedgerConnection;
@@ -29,7 +30,8 @@ use RoundlyConsulting\Credits\Support\OwnerLock;
  * A debit of an owner with credit parents is a debit of its whole chain: the chain is locked
  * from the top down, every level is guarded (the owner's first, so a refusal names the
  * nearest owner that blocks), and one row is written per level, with CreditsModified for each.
- * The owner's row is returned. A grant (a positive amount) stays with the owner.
+ * The owner's row is returned. A grant (a positive amount) stays with the owner. Extra ceilings
+ * (`CreditChangeData::$alsoWithin`) are levels of a debit too, with their own parents.
  */
 final readonly class ModifyCreditsAction
 {
@@ -49,7 +51,9 @@ final readonly class ModifyCreditsAction
      */
     public function execute(Model&Creditable $creditable, CreditChangeData $data, bool $withinParents = true): Credit
     {
-        $chain = $withinParents && $data->amount < 0 ? $this->parents->chain($creditable) : [$creditable];
+        $chain = $withinParents && $data->amount < 0
+            ? $this->parents->levels($creditable, $data->alsoWithin)
+            : [new CreditLevel($creditable, 0)];
         /** @var list<array{Model&Creditable, Credit, int}> $levels */
         $levels = [];
 
@@ -57,11 +61,12 @@ final readonly class ModifyCreditsAction
             $levels = [];
             $bucket = $data->resolvedBucket();
 
-            $this->lock->acquireChain($chain);
+            $this->lock->acquireLevels($chain);
 
             $balances = [];
 
-            foreach ($chain as $depth => $owner) {
+            foreach ($chain as $depth => $level) {
+                $owner = $level->owner;
                 $balances[$depth] = $this->balance->execute($owner, lockForUpdate: true, bucket: $bucket);
 
                 // Held credits are not spendable: a guarded debit decides on the balance minus the
@@ -73,6 +78,7 @@ final readonly class ModifyCreditsAction
                         $data->amount,
                         $data->allowOverdraft,
                         $creditable,
+                        $level->ceiling,
                     );
                 }
 
@@ -80,7 +86,8 @@ final readonly class ModifyCreditsAction
                 $balances[$depth] = LedgerBounds::balanceAfter($balances[$depth], $data->amount, $bucket);
             }
 
-            foreach ($chain as $depth => $owner) {
+            foreach ($chain as $depth => $level) {
+                $owner = $level->owner;
                 /** @var Credit $credit */
                 $credit = $owner->credits()->create($data->toAttributes());
 

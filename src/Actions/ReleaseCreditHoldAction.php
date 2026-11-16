@@ -11,6 +11,7 @@ use RoundlyConsulting\Credits\Exceptions\CreditHoldNotActiveException;
 use RoundlyConsulting\Credits\Exceptions\LinkedCreditHoldException;
 use RoundlyConsulting\Credits\Models\CreditHold;
 use RoundlyConsulting\Credits\Support\CreditHolds;
+use RoundlyConsulting\Credits\Support\CreditParents;
 use RoundlyConsulting\Credits\Support\OwnerLock;
 
 /**
@@ -24,6 +25,7 @@ final readonly class ReleaseCreditHoldAction
 {
     public function __construct(
         private OwnerLock $lock,
+        private CreditParents $parents,
     ) {}
 
     /**
@@ -42,9 +44,7 @@ final readonly class ReleaseCreditHoldAction
             $released = [];
             $linked = CreditHolds::linked($hold);
 
-            foreach ([...$linked, $hold] as $level) {
-                $this->lock->acquireFor($connection, $level->creditable_type, $level->creditable_id);
-            }
+            CreditHolds::lockLevels($this->lock, $this->parents, $connection, [...$linked, $hold]);
 
             $now = CarbonImmutable::now();
             $fresh = CreditHolds::reread($hold);

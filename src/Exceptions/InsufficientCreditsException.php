@@ -15,7 +15,8 @@ use RoundlyConsulting\Credits\Support\Int64;
  *
  * `$creditable` is the owner that blocked. On an owner with credit parents that can be an
  * ancestor: `$requestedBy` is then the owner the call was made on, and the message names the
- * blocking owner (`ownerType()`, `ownerKey()`).
+ * blocking owner (`ownerType()`, `ownerKey()`). An extra ceiling (`alsoWithin`) that blocks is
+ * named the same way, with {@see self::blockedByCeiling()}.
  */
 final class InsufficientCreditsException extends CreditsException
 {
@@ -25,9 +26,10 @@ final class InsufficientCreditsException extends CreditsException
         public readonly int $available,
         public readonly int $minimum = 0,
         public readonly ?Model $requestedBy = null,
+        public readonly bool $ceiling = false,
     ) {
         parent::__construct(match (true) {
-            $this->blockedByParent() => (string) trans('credits::messages.insufficient_within_parent', [
+            $this->blockedByParent() || $this->blockedByCeiling() => (string) trans('credits::messages.insufficient_within_parent', [
                 'owner' => CreditParents::identity($creditable),
                 'requested' => abs($requested),
                 'available' => Int64::subtract($available, $minimum),
@@ -47,7 +49,13 @@ final class InsufficientCreditsException extends CreditsException
     /** Whether a credit parent of the owner the call was made on blocked it, not that owner itself. */
     public function blockedByParent(): bool
     {
-        return $this->requestedBy !== null && ! $this->requestedBy->is($this->creditable);
+        return ! $this->ceiling && $this->requestedBy !== null && ! $this->requestedBy->is($this->creditable);
+    }
+
+    /** Whether an extra ceiling (`alsoWithin`), or one of its parents, blocked it. */
+    public function blockedByCeiling(): bool
+    {
+        return $this->ceiling;
     }
 
     /** The blocking owner's morph type. */

@@ -26,21 +26,22 @@ final readonly class GetCreditsAvailableWithinAction
 
     /**
      * @param  (callable(Model&Creditable, string|null): int)|null  $availableOf  how one level's available balance is read; the ledger's when null
+     * @param  iterable<Model&Creditable>  $alsoWithin  extra ceilings counted too, with their own parents
      *
      * @throws InvalidCreditParentException when the owner's parents cannot be walked
      * @throws AmountOverflow
      */
-    public function execute(Model&Creditable $creditable, ?string $bucket = null, ?callable $availableOf = null): CreditsAvailability
+    public function execute(Model&Creditable $creditable, ?string $bucket = null, ?callable $availableOf = null, iterable $alsoWithin = []): CreditsAvailability
     {
         $availableOf ??= fn (Model&Creditable $owner, ?string $bucket): int => $this->available->execute($owner, $bucket);
-        $chain = $this->parents->chain($creditable);
+        $levels = $this->parents->levels($creditable, $alsoWithin);
         $limit = null;
 
-        foreach ($chain as $owner) {
-            $available = $availableOf($owner, $bucket);
+        foreach ($levels as $level) {
+            $available = $availableOf($level->owner, $bucket);
 
             if ($limit === null || $available < $limit->available) {
-                $limit = new CreditsAvailability($available, $owner, count($chain));
+                $limit = new CreditsAvailability($available, $level->owner, count($levels), $level->ceiling);
             }
         }
 

@@ -22,6 +22,7 @@ use RoundlyConsulting\Credits\Interfaces\Creditable;
 use RoundlyConsulting\Credits\Models\Credit;
 use RoundlyConsulting\Credits\Models\CreditHold;
 use RoundlyConsulting\Credits\Support\CreditHolds;
+use RoundlyConsulting\Credits\Support\CreditLevel;
 use RoundlyConsulting\Credits\Support\CreditParents;
 use RoundlyConsulting\Credits\Support\CreditResets;
 use RoundlyConsulting\Credits\Support\CreditsConfig;
@@ -115,7 +116,7 @@ final class CreditsFake extends CreditsManager
     public function modify(Model&Creditable $owner, CreditChangeData $data): Credit
     {
         // A debit of an owner with credit parents is recorded on every level, as the ledger writes it.
-        $chain = $data->amount < 0 ? $this->chain($owner) : [$owner];
+        $chain = $data->amount < 0 ? $this->chain($owner, $data->alsoWithin) : [$owner];
         $credit = $this->applyChain($chain, $data);
 
         foreach ($chain as $level) {
@@ -190,10 +191,13 @@ final class CreditsFake extends CreditsManager
     /**
      * The chain's smallest available balance, read from the fake's balances.
      */
-    public function availableWithin(Model&Creditable $owner, ?string $bucket = null): CreditsAvailability
+    /**
+     * @param  iterable<Model&Creditable>  $alsoWithin
+     */
+    public function availableWithin(Model&Creditable $owner, ?string $bucket = null, iterable $alsoWithin = []): CreditsAvailability
     {
         return $this->container->make(GetCreditsAvailableWithinAction::class)
-            ->execute($owner, $bucket, fn (Model&Creditable $level, ?string $bucket): int => $this->available($level, $bucket));
+            ->execute($owner, $bucket, fn (Model&Creditable $level, ?string $bucket): int => $this->available($level, $bucket), $alsoWithin);
     }
 
     /**
@@ -208,12 +212,13 @@ final class CreditsFake extends CreditsManager
         $now = CarbonImmutable::now();
         $expiresAt = CreditHolds::expiry($data, $now);
         $bucket = $data->resolvedBucket();
-        $chain = $this->chain($owner);
+        $chain = $this->chain($owner, $data->alsoWithin);
+        $ceilings = $this->ceilings($owner, $data->alsoWithin);
 
-        foreach ($chain as $level) {
+        foreach ($chain as $index => $level) {
             $available = $this->available($level, $bucket);
 
-            OverdraftGuard::check($level, $available, -$data->amount, $data->allowOverdraft, $owner);
+            OverdraftGuard::check($level, $available, -$data->amount, $data->allowOverdraft, $owner, $ceilings[$index]);
             LedgerBounds::available($available, $data->amount, $bucket);
         }
 
@@ -489,13 +494,25 @@ final class CreditsFake extends CreditsManager
     }
 
     /**
-     * The owner's chain of credit parents, as the real ledger walks it.
+     * The owner's chain of credit parents and extra ceilings, as the real ledger walks them.
      *
+     * @param  iterable<Model&Creditable>  $alsoWithin
      * @return non-empty-list<Model&Creditable>
      */
-    private function chain(Model&Creditable $owner): array
+    private function chain(Model&Creditable $owner, iterable $alsoWithin = []): array
     {
-        return $this->container->make(CreditParents::class)->chain($owner);
+        return array_map(static fn (CreditLevel $level): Model&Creditable => $level->owner, $this->container->make(CreditParents::class)->levels($owner, $alsoWithin));
+    }
+
+    /**
+     * Which of the owner's levels are extra ceilings, in the order chain() lists them.
+     *
+     * @param  iterable<Model&Creditable>  $alsoWithin
+     * @return list<bool>
+     */
+    private function ceilings(Model&Creditable $owner, iterable $alsoWithin): array
+    {
+        return array_map(static fn (CreditLevel $level): bool => $level->ceiling, $this->container->make(CreditParents::class)->levels($owner, $alsoWithin));
     }
 
     /**
@@ -509,11 +526,13 @@ final class CreditsFake extends CreditsManager
         $owner = $chain[0];
         $bucket = $data->resolvedBucket();
 
-        foreach ($chain as $level) {
+        $ceilings = $this->ceilings($owner, $data->alsoWithin);
+
+        foreach ($chain as $index => $level) {
             $balance = $this->balance($level, $bucket);
 
             if (OverdraftGuard::applies($data->amount, $data->allowOverdraft)) {
-                OverdraftGuard::check($level, LedgerBounds::available($balance, $this->held($level, $bucket), $bucket), $data->amount, $data->allowOverdraft, $owner);
+                OverdraftGuard::check($level, LedgerBounds::available($balance, $this->held($level, $bucket), $bucket), $data->amount, $data->allowOverdraft, $owner, $ceilings[$index] ?? false);
             }
 
             LedgerBounds::balanceAfter($balance, $data->amount, $bucket);

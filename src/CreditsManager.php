@@ -153,11 +153,15 @@ class CreditsManager
      * What the owner can spend within its credit parents: the smallest available balance along
      * its chain, and the owner that has it. Its own available balance when it has no parents.
      *
+     * With `$alsoWithin`, extra ceilings (and their parents) count too.
+     *
+     * @param  iterable<Model&Creditable>  $alsoWithin
+     *
      * @throws InvalidCreditParentException when the owner's parents cannot be walked
      */
-    public function availableWithin(Model&Creditable $owner, ?string $bucket = null): CreditsAvailability
+    public function availableWithin(Model&Creditable $owner, ?string $bucket = null, iterable $alsoWithin = []): CreditsAvailability
     {
-        return $this->container->make(GetCreditsAvailableWithinAction::class)->execute($owner, $bucket);
+        return $this->container->make(GetCreditsAvailableWithinAction::class)->execute($owner, $bucket, alsoWithin: $alsoWithin);
     }
 
     /**

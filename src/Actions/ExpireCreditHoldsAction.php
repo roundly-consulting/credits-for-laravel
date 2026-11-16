@@ -12,6 +12,7 @@ use RoundlyConsulting\Credits\Events\CreditHoldExpired;
 use RoundlyConsulting\Credits\Models\CreditHold;
 use RoundlyConsulting\Credits\Support\CreditHolds;
 use RoundlyConsulting\Credits\Support\CreditModel;
+use RoundlyConsulting\Credits\Support\CreditParents;
 use RoundlyConsulting\Credits\Support\CreditsConfig;
 use RoundlyConsulting\Credits\Support\OwnerLock;
 
@@ -27,6 +28,7 @@ final readonly class ExpireCreditHoldsAction
 {
     public function __construct(
         private OwnerLock $lock,
+        private CreditParents $parents,
     ) {}
 
     /**
@@ -68,9 +70,7 @@ final readonly class ExpireCreditHoldsAction
         $connection->transaction(function () use ($origin, $linked, $now, $connection, &$expired): void {
             $expired = [];
 
-            foreach ([...$linked, $origin] as $level) {
-                $this->lock->acquireFor($connection, $level->creditable_type, $level->creditable_id);
-            }
+            CreditHolds::lockLevels($this->lock, $this->parents, $connection, [...$linked, $origin]);
 
             foreach ([$origin, ...$linked] as $level) {
                 // Still held and still past its expiry: a capture or release that took the lock

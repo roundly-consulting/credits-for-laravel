@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Credits\DataTransferObjects;
 
 use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Model;
+use RoundlyConsulting\Credits\Interfaces\Creditable;
 use RoundlyConsulting\Credits\Support\CreditsConfig;
 
 final readonly class CreditHoldData
@@ -15,6 +17,8 @@ final readonly class CreditHoldData
      *                                           `credits.holds.expire_after_minutes` (or never).
      * @param  array<string, mixed>|null  $meta  Stored to the hold's json column.
      * @param  string|null  $bucket  The named bucket; resolves to the configured default when null.
+     * @param  list<Model&Creditable>  $alsoWithin  Extra ceilings a debit or hold must also fit (and is
+     *                                              written on), beside the owner's credit parents.
      */
     public function __construct(
         public int $amount,
@@ -23,6 +27,7 @@ final readonly class CreditHoldData
         public ?array $meta = null,
         public bool $allowOverdraft = false,
         public ?string $bucket = null,
+        public array $alsoWithin = [],
     ) {}
 
     /**
